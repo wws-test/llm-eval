@@ -1,0 +1,549 @@
+<!DOCTYPE html>
+<html lang="zh-CN" >
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="csrf-token" content="{{ csrf_token() if csrf_token else '' }}">
+    <title>{% block title %}{{ title if title else '大模型评估平台' }}{% endblock %}</title>
+    <!-- 立即应用主题，避免FOUC -->
+    <script>
+        (function() {
+            // 立即从localStorage获取保存的主题并应用
+            const savedTheme = localStorage.getItem('selectedTheme') || 'retro';
+            document.documentElement.setAttribute('data-theme', savedTheme);
+        })();
+    </script>
+    <!-- 添加favicon -->
+    <link rel="icon" type="image/svg+xml" href="{{ url_for('static', filename='favicon.svg') }}">
+    <link rel="alternate icon" href="{{ url_for('static', filename='favicon.svg') }}">
+    <link rel="mask-icon" href="{{ url_for('static', filename='favicon.svg') }}" color="#000000">
+    <link href="https://cdn.jsdelivr.net/npm/daisyui@4.10.1/dist/full.min.css" rel="stylesheet" type="text/css" />
+    <script src="https://cdn.tailwindcss.com"></script> {# DaisyUI requires Tailwind #}
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
+    <style>
+        /* Minimal global styles if any - DaisyUI handles most component styling */
+        body {
+            @apply font-sans;
+        }
+        /* Flash message custom styling if needed, or map to DaisyUI alerts more directly */
+        
+        /* 主题选择器样式 */
+        .theme-option {
+            @apply flex items-center px-3 py-2 rounded-lg transition-all duration-200;
+        }
+        
+        .theme-option:hover {
+            @apply bg-base-200;
+        }
+        
+        .theme-option.active {
+            @apply bg-primary text-primary-content font-semibold;
+        }
+        
+        .theme-option.active i {
+            @apply text-primary-content;
+        }
+        
+        /* 主题下拉菜单样式 */
+        #theme-dropdown-details ul {
+            min-width: 200px;
+        }
+    </style>
+    {% block head_extra %}{% endblock %}
+</head>
+<body class="min-h-screen flex flex-col">
+    <div class="navbar bg-base-200 shadow-md">
+        <div class="container mx-auto">
+            <div class="flex-1">
+                <a href="{{ url_for('main.index') }}" class="btn btn-ghost text-xl whitespace-nowrap">
+                    <i class="fas fa-brain mr-1"></i> 大模型评估平台
+                </a>
+            </div>
+            <div class="flex-none">
+                <ul class="menu menu-horizontal px-1" style="align-items: center;">
+                    {% if current_user and current_user.is_authenticated %}
+                        <li><a href="{{ url_for('main.dashboard') }}">仪表盘</a></li>
+                        <li><a href="{{ url_for('models.list_models') }}">模型管理</a></li>
+                        <li>
+                            <details id="chat-dropdown-details">
+                                <summary class="whitespace-nowrap">对话</summary>
+                                <ul class="p-2 bg-base-100 rounded-t-none shadow-lg z-[1001] w-max">
+                                    <li><a href="{{ url_for('chat.new_chat_session') }}">开始新对话</a></li>
+                                    <li><a href="{{ url_for('chat.chat_history_list') }}">对话历史</a></li>
+                                </ul>
+                            </details>
+                        </li>
+                        <li><a href="{{ url_for('datasets.datasets_list') }}">测试集</a></li>
+                        <li>
+                            <details id="chat-dropdown-details">
+                                <summary class="whitespace-nowrap">效果评估</summary>
+                                <ul class="p-2 bg-base-100 rounded-t-none shadow-lg z-[1001] w-max">
+                                    <li><a href="{{ url_for('evaluations.create_evaluation') }}">开始评估</a></li>
+                                    <li><a href="{{ url_for('evaluations.evaluations_list') }}">评估历史</a></li>
+                                </ul>
+                            </details>
+                        </li>
+                        <li>
+                            <details id="perf-eval-dropdown-details">
+                                <summary class="whitespace-nowrap">性能评估</summary>
+                                <ul class="p-2 bg-base-100 rounded-t-none shadow-lg z-[1001] w-max">
+                                    <li><a href="{{ url_for('perf_eval.create') }}">开始评估</a></li>
+                                    <li><a href="{{ url_for('perf_eval.history') }}">评估历史</a></li>
+                                </ul>
+                            </details>
+                        </li>
+                        <li>
+                            <details id="theme-dropdown-details">
+                                <summary class="whitespace-nowrap">
+                                    <i class="fas fa-palette mr-1"></i>主题
+                                </summary>
+                                <ul class="p-2 bg-base-100 rounded-t-none shadow-lg z-[1001] w-max max-h-80 overflow-y-auto">
+                                    <li><a href="#" onclick="changeTheme('light')" class="theme-option" >
+                                        <i class="fas fa-sun mr-2"></i>Light
+                                    </a></li>
+                                    <li><a href="#" onclick="changeTheme('dark')" class="theme-option" >
+                                        <i class="fas fa-moon mr-2"></i>Dark
+                                    </a></li>
+                                    <li><a href="#" onclick="changeTheme('cupcake')" class="theme-option" >
+                                        <i class="fas fa-birthday-cake mr-2"></i>Cupcake
+                                    </a></li>
+                                    <li><a href="#" onclick="changeTheme('bumblebee')" class="theme-option" >
+                                        <i class="fas fa-bug mr-2"></i>Bumblebee
+                                    </a></li>
+                                    <li><a href="#" onclick="changeTheme('emerald')" class="theme-option" >
+                                        <i class="fas fa-gem mr-2"></i>Emerald
+                                    </a></li>
+                                    <li><a href="#" onclick="changeTheme('corporate')" class="theme-option" >
+                                        <i class="fas fa-building mr-2"></i>Corporate
+                                    </a></li>
+                                    <li><a href="#" onclick="changeTheme('synthwave')" class="theme-option" >
+                                        <i class="fas fa-wave-square mr-2"></i>Synthwave
+                                    </a></li>
+                                    <li><a href="#" onclick="changeTheme('retro')" class="theme-option" >
+                                        <i class="fas fa-tv mr-2"></i>Retro
+                                    </a></li>
+                                    <li><a href="#" onclick="changeTheme('cyberpunk')" class="theme-option" >
+                                        <i class="fas fa-robot mr-2"></i>Cyberpunk
+                                    </a></li>
+                                    <li><a href="#" onclick="changeTheme('valentine')" class="theme-option" >
+                                        <i class="fas fa-heart mr-2"></i>Valentine
+                                    </a></li>
+                                    <li><a href="#" onclick="changeTheme('halloween')" class="theme-option" >
+                                        <i class="fas fa-ghost mr-2"></i>Halloween
+                                    </a></li>
+                                    <li><a href="#" onclick="changeTheme('garden')" class="theme-option" >
+                                        <i class="fas fa-seedling mr-2"></i>Garden
+                                    </a></li>
+                                    <li><a href="#" onclick="changeTheme('forest')" class="theme-option" >
+                                        <i class="fas fa-tree mr-2"></i>Forest
+                                    </a></li>
+                                    <li><a href="#" onclick="changeTheme('aqua')" class="theme-option" >
+                                        <i class="fas fa-water mr-2"></i>Aqua
+                                    </a></li>
+                                    <li><a href="#" onclick="changeTheme('lofi')" class="theme-option" >
+                                        <i class="fas fa-music mr-2"></i>Lofi
+                                    </a></li>
+                                    <li><a href="#" onclick="changeTheme('pastel')" class="theme-option" >
+                                        <i class="fas fa-paint-brush mr-2"></i>Pastel
+                                    </a></li>
+                                    <li><a href="#" onclick="changeTheme('fantasy')" class="theme-option" >
+                                        <i class="fas fa-magic mr-2"></i>Fantasy
+                                    </a></li>
+                                    <li><a href="#" onclick="changeTheme('wireframe')" class="theme-option" >
+                                        <i class="fas fa-border-all mr-2"></i>Wireframe
+                                    </a></li>
+                                    <li><a href="#" onclick="changeTheme('black')" class="theme-option" >
+                                        <i class="fas fa-circle mr-2"></i>Black
+                                    </a></li>
+                                    <li><a href="#" onclick="changeTheme('luxury')" class="theme-option" >
+                                        <i class="fas fa-crown mr-2"></i>Luxury
+                                    </a></li>
+                                    <li><a href="#" onclick="changeTheme('dracula')" class="theme-option">
+                                        <i class="fas fa-moon mr-2"></i>Dracula
+                                    </a></li>
+                                    <li><a href="#" onclick="changeTheme('cmyk')" class="theme-option" >
+                                        <i class="fas fa-print mr-2"></i>CMYK
+                                    </a></li>
+                                    <li><a href="#" onclick="changeTheme('autumn')" class="theme-option" >
+                                        <i class="fas fa-leaf mr-2"></i>Autumn
+                                    </a></li>
+                                    <li><a href="#" onclick="changeTheme('business')" class="theme-option" >
+                                        <i class="fas fa-briefcase mr-2"></i>Business
+                                    </a></li>
+                                    <li><a href="#" onclick="changeTheme('acid')" class="theme-option" >
+                                        <i class="fas fa-flask mr-2"></i>Acid
+                                    </a></li>
+                                    <li><a href="#" onclick="changeTheme('lemonade')" class="theme-option" >
+                                        <i class="fas fa-lemon mr-2"></i>Lemonade
+                                    </a></li>
+                                    <li><a href="#" onclick="changeTheme('night')" class="theme-option" >
+                                        <i class="fas fa-moon mr-2"></i>Night
+                                    </a></li>
+                                    <li><a href="#" onclick="changeTheme('coffee')" class="theme-option" >
+                                        <i class="fas fa-coffee mr-2"></i>Coffee
+                                    </a></li>
+                                    <li><a href="#" onclick="changeTheme('winter')" class="theme-option" >
+                                        <i class="fas fa-snowflake mr-2"></i>Winter
+                                    </a></li>
+                                </ul>
+                            </details>
+                        </li>
+                        <li>
+                            <details id="user-dropdown-details">
+                                <summary class="whitespace-nowrap">{{ current_user.username if current_user else '用户' }}</summary>
+                                <ul class="p-2 bg-base-100 rounded-t-none shadow-lg z-[1001] w-max">
+                                    <li><a href="{{ url_for('auth.change_password') }}">修改密码</a></li>
+                                    <li><a href="{{ url_for('auth.logout') }}">退出登录</a></li>
+                                </ul>
+                            </details>
+                        </li>
+                    {% else %}
+                        <li>
+                            <details id="theme-dropdown-details-guest">
+                                <summary class="whitespace-nowrap">
+                                    <i class="fas fa-palette mr-1"></i>主题
+                                </summary>
+                                <ul class="p-2 bg-base-100 rounded-t-none shadow-lg z-[1001] w-max max-h-80 overflow-y-auto">
+                                    <li><a href="#" onclick="changeTheme('light')" class="theme-option" >
+                                        <i class="fas fa-sun mr-2"></i>Light
+                                    </a></li>
+                                    <li><a href="#" onclick="changeTheme('dark')" class="theme-option" >
+                                        <i class="fas fa-moon mr-2"></i>Dark
+                                    </a></li>
+                                    <li><a href="#" onclick="changeTheme('cupcake')" class="theme-option" >
+                                        <i class="fas fa-birthday-cake mr-2"></i>Cupcake
+                                    </a></li>
+                                    <li><a href="#" onclick="changeTheme('bumblebee')" class="theme-option" >
+                                        <i class="fas fa-bug mr-2"></i>Bumblebee
+                                    </a></li>
+                                    <li><a href="#" onclick="changeTheme('emerald')" class="theme-option" >
+                                        <i class="fas fa-gem mr-2"></i>Emerald
+                                    </a></li>
+                                    <li><a href="#" onclick="changeTheme('corporate')" class="theme-option" >
+                                        <i class="fas fa-building mr-2"></i>Corporate
+                                    </a></li>
+                                    <li><a href="#" onclick="changeTheme('synthwave')" class="theme-option" >
+                                        <i class="fas fa-wave-square mr-2"></i>Synthwave
+                                    </a></li>
+                                    <li><a href="#" onclick="changeTheme('retro')" class="theme-option" >
+                                        <i class="fas fa-tv mr-2"></i>Retro
+                                    </a></li>
+                                    <li><a href="#" onclick="changeTheme('cyberpunk')" class="theme-option" >
+                                        <i class="fas fa-robot mr-2"></i>Cyberpunk
+                                    </a></li>
+                                    <li><a href="#" onclick="changeTheme('valentine')" class="theme-option" >
+                                        <i class="fas fa-heart mr-2"></i>Valentine
+                                    </a></li>
+                                    <li><a href="#" onclick="changeTheme('halloween')" class="theme-option" >
+                                        <i class="fas fa-ghost mr-2"></i>Halloween
+                                    </a></li>
+                                    <li><a href="#" onclick="changeTheme('garden')" class="theme-option" >
+                                        <i class="fas fa-seedling mr-2"></i>Garden
+                                    </a></li>
+                                    <li><a href="#" onclick="changeTheme('forest')" class="theme-option" >
+                                        <i class="fas fa-tree mr-2"></i>Forest
+                                    </a></li>
+                                    <li><a href="#" onclick="changeTheme('aqua')" class="theme-option" >
+                                        <i class="fas fa-water mr-2"></i>Aqua
+                                    </a></li>
+                                    <li><a href="#" onclick="changeTheme('lofi')" class="theme-option" >
+                                        <i class="fas fa-music mr-2"></i>Lofi
+                                    </a></li>
+                                    <li><a href="#" onclick="changeTheme('pastel')" class="theme-option" >
+                                        <i class="fas fa-paint-brush mr-2"></i>Pastel
+                                    </a></li>
+                                    <li><a href="#" onclick="changeTheme('fantasy')" class="theme-option" >
+                                        <i class="fas fa-magic mr-2"></i>Fantasy
+                                    </a></li>
+                                    <li><a href="#" onclick="changeTheme('wireframe')" class="theme-option" >
+                                        <i class="fas fa-border-all mr-2"></i>Wireframe
+                                    </a></li>
+                                    <li><a href="#" onclick="changeTheme('black')" class="theme-option" >
+                                        <i class="fas fa-circle mr-2"></i>Black
+                                    </a></li>
+                                    <li><a href="#" onclick="changeTheme('luxury')" class="theme-option" >
+                                        <i class="fas fa-crown mr-2"></i>Luxury
+                                    </a></li>
+                                    <li><a href="#" onclick="changeTheme('dracula')" class="theme-option">
+                                        <i class="fas fa-moon mr-2"></i>Dracula
+                                    </a></li>
+                                    <li><a href="#" onclick="changeTheme('cmyk')" class="theme-option" >
+                                        <i class="fas fa-print mr-2"></i>CMYK
+                                    </a></li>
+                                    <li><a href="#" onclick="changeTheme('autumn')" class="theme-option" >
+                                        <i class="fas fa-leaf mr-2"></i>Autumn
+                                    </a></li>
+                                    <li><a href="#" onclick="changeTheme('business')" class="theme-option" >
+                                        <i class="fas fa-briefcase mr-2"></i>Business
+                                    </a></li>
+                                    <li><a href="#" onclick="changeTheme('acid')" class="theme-option" >
+                                        <i class="fas fa-flask mr-2"></i>Acid
+                                    </a></li>
+                                    <li><a href="#" onclick="changeTheme('lemonade')" class="theme-option" >
+                                        <i class="fas fa-lemon mr-2"></i>Lemonade
+                                    </a></li>
+                                    <li><a href="#" onclick="changeTheme('night')" class="theme-option" >
+                                        <i class="fas fa-moon mr-2"></i>Night
+                                    </a></li>
+                                    <li><a href="#" onclick="changeTheme('coffee')" class="theme-option" >
+                                        <i class="fas fa-coffee mr-2"></i>Coffee
+                                    </a></li>
+                                    <li><a href="#" onclick="changeTheme('winter')" class="theme-option" >
+                                        <i class="fas fa-snowflake mr-2"></i>Winter
+                                    </a></li>
+                                </ul>
+                            </details>
+                        </li>
+                        <li><a href="{{ url_for('auth.login') }}" class="btn btn-ghost">登录</a></li>
+                    {% endif %}
+                </ul>
+            </div>
+        </div>
+    </div>
+
+    <main class="flex-grow container mx-auto mt-8 px-4 md:px-6 py-5">
+        {% with messages = get_flashed_messages(with_categories=true) %}
+            {% if messages %}
+                <div class="space-y-2 mb-6">
+                {% for category, message in messages %}
+                    {# Map categories to DaisyUI alert types #}
+                    {% set alert_type = 'alert-info' %}
+                    {% if category == 'success' %}
+                        {% set alert_type = 'alert-success' %}
+                    {% elif category == 'danger' %}
+                        {% set alert_type = 'alert-error' %}
+                    {% elif category == 'warning' %}
+                        {% set alert_type = 'alert-warning' %}
+                    {% endif %}
+                    <div role="alert" class="alert {{ alert_type }} shadow-md">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="stroke-current shrink-0 h-6 w-6" fill="none" viewBox="0 0 24 24">
+                            {% if category == 'success' %}
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                            {% elif category == 'danger' %}
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2m7-2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                            {% elif category == 'warning' %}
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                            {% else %}{# info #}
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                            {% endif %}
+                        </svg>
+                        <span>{{ message }}</span>
+                    </div>
+                {% endfor %}
+                </div>
+            {% endif %}
+        {% endwith %}
+
+        {% block content %}{% endblock %}
+    </main>
+
+    {# General Confirmation Modal #}
+    <dialog id="global_confirmation_modal" class="modal modal-bottom sm:modal-middle">
+        <div class="modal-box">
+            <h3 class="font-bold text-lg" id="confirmation_modal_title">请确认操作</h3>
+            <p class="py-4" id="confirmation_modal_message">您确定要执行此操作吗？此操作通常无法撤销。</p>
+            <div class="modal-action">
+                <button class="btn btn-sm" id="confirmation_modal_cancel_btn">取消</button>
+                <button class="btn btn-sm btn-error" id="confirmation_modal_confirm_btn">确认</button> {# btn-error or btn-primary based on action #}
+            </div>
+        </div>
+        <form method="dialog" class="modal-backdrop">
+            <button>关闭</button>
+        </form>
+    </dialog>
+
+    {% block scripts %}
+    <script>
+        // 主题切换功能
+        function changeTheme(theme) {
+            // 设置HTML元素的data-theme属性
+            document.documentElement.setAttribute('data-theme', theme);
+            
+            // 保存主题到localStorage
+            localStorage.setItem('selectedTheme', theme);
+            
+            // 更新当前主题的视觉指示
+            updateThemeIndicator(theme);
+            
+            // 关闭主题下拉菜单（登录用户和未登录用户）
+            closeAllDropdowns();
+        }
+        
+        function updateThemeIndicator(currentTheme) {
+            // 移除所有主题选项的active状态
+            document.querySelectorAll('.theme-option').forEach(option => {
+                option.classList.remove('active');
+            });
+            
+            // 为当前主题添加active状态
+            const currentOption = document.querySelector(`[data-theme="${currentTheme}"]`);
+            if (currentOption) {
+                currentOption.classList.add('active');
+            }
+        }
+        
+        // 关闭所有下拉菜单
+        function closeAllDropdowns() {
+            const allDropdowns = document.querySelectorAll('details[id*="dropdown-details"]');
+            allDropdowns.forEach(dropdown => {
+                dropdown.removeAttribute('open');
+            });
+        }
+        
+        // 清除保存的账号密码（登出时使用）
+        function clearSavedCredentials() {
+            localStorage.removeItem('rememberedUsername');
+            localStorage.removeItem('rememberedPassword');
+            localStorage.removeItem('credentialsRemembered');
+        }
+        
+        // 页面加载时初始化主题
+        function initializeTheme() {
+            // 从localStorage获取保存的主题，如果没有则使用默认主题
+            const savedTheme = localStorage.getItem('selectedTheme') || 'retro';
+            
+            // 主题已经在head中应用了，这里只需要更新UI指示器
+            updateThemeIndicator(savedTheme);
+        }
+        
+        document.addEventListener('DOMContentLoaded', function () {
+            // 初始化主题
+            initializeTheme();
+            
+            // 获取所有下拉菜单元素
+            const detailsElements = document.querySelectorAll('details[id*="dropdown-details"]');
+            
+            // 点击页面其他区域时关闭下拉菜单
+            document.addEventListener('click', function (event) {
+                detailsElements.forEach(function (details) {
+                    // 如果点击的不是当前下拉菜单内的元素，则关闭该下拉菜单
+                    if (!details.contains(event.target)) {
+                        details.removeAttribute('open');
+                    }
+                });
+            });
+            
+            // 为每个下拉菜单添加键盘事件监听（ESC键关闭）
+            detailsElements.forEach(function (details) {
+                details.addEventListener('keydown', function (event) {
+                    if (event.key === 'Escape') {
+                        details.removeAttribute('open');
+                        // 将焦点返回到summary元素
+                        const summary = details.querySelector('summary');
+                        if (summary) {
+                            summary.focus();
+                        }
+                    }
+                });
+                
+                // 当下拉菜单打开时，为其添加焦点管理
+                details.addEventListener('toggle', function () {
+                    if (details.hasAttribute('open')) {
+                        // 下拉菜单打开时，关闭其他所有下拉菜单
+                        detailsElements.forEach(function (otherDetails) {
+                            if (otherDetails !== details) {
+                                otherDetails.removeAttribute('open');
+                            }
+                        });
+                    }
+                });
+            });
+            
+            // 处理焦点丢失事件
+            document.addEventListener('focusout', function (event) {
+                // 延迟执行，确保新的焦点元素已经设置
+                setTimeout(function () {
+                    const activeElement = document.activeElement;
+                    
+                    detailsElements.forEach(function (details) {
+                        // 如果焦点不在当前下拉菜单内，则关闭它
+                        if (details.hasAttribute('open') && !details.contains(activeElement)) {
+                            details.removeAttribute('open');
+                        }
+                    });
+                }, 100);
+            });
+    
+            // Global Confirmation Modal Logic
+            const confirmationModal = document.getElementById('global_confirmation_modal');
+            const modalTitle = document.getElementById('confirmation_modal_title');
+            const modalMessage = document.getElementById('confirmation_modal_message');
+            const confirmBtn = document.getElementById('confirmation_modal_confirm_btn');
+            const cancelBtn = document.getElementById('confirmation_modal_cancel_btn');
+            let formToSubmit = null;
+            let confirmCallback = null;
+
+            window.showConfirmationModal = function(formElement, title, message, confirmButtonText = '确认', confirmButtonClass = 'btn-error') {
+                formToSubmit = formElement; // Store the form that should be submitted
+                confirmCallback = null; // Reset callback
+                modalTitle.textContent = title;
+                modalMessage.innerHTML = message; // Use innerHTML if message contains HTML
+                confirmBtn.textContent = confirmButtonText;
+                confirmBtn.className = `btn btn-sm ${confirmButtonClass}`; // Reset and apply class
+                if (confirmationModal.showModal) {
+                    confirmationModal.showModal();
+                } else {
+                    // Fallback for older browsers or if not using <dialog> polyfill
+                    confirmationModal.style.display = 'block'; 
+                }
+            };
+            
+            window.showGenericConfirm = function(callback, title, message, confirmButtonText = '确认', confirmButtonClass = 'btn-primary') {
+                formToSubmit = null; // Not submitting a form directly
+                confirmCallback = callback; // Store the callback function
+                modalTitle.textContent = title;
+                modalMessage.innerHTML = message;
+                confirmBtn.textContent = confirmButtonText;
+                confirmBtn.className = `btn btn-sm ${confirmButtonClass}`;
+                cancelBtn.style.display = 'inline-flex'; // 确保取消按钮可见
+                if (confirmationModal.showModal) {
+                    confirmationModal.showModal();
+                } else {
+                    confirmationModal.style.display = 'block';
+                }
+            };
+
+            // 新增: 用于显示 DaisyUI 风格的简单警告弹窗
+            window.showDaisyUIAlert = function(title, message) {
+                formToSubmit = null;
+                confirmCallback = null; // 警告弹窗通常不需要复杂的回调，点击确认即关闭
+                modalTitle.textContent = title;
+                modalMessage.innerHTML = message; // 允许消息中包含简单的HTML
+                confirmBtn.textContent = '好的'; // 将确认按钮文本设为"好的"
+                confirmBtn.className = 'btn btn-sm btn-primary'; // 可以使用主要按钮样式
+                cancelBtn.style.display = 'none'; // 隐藏取消按钮
+
+                if (confirmationModal.showModal) {
+                    confirmationModal.showModal();
+                } else {
+                    confirmationModal.style.display = 'block';
+                }
+            };
+
+            confirmBtn.addEventListener('click', function() {
+                if (formToSubmit) {
+                    formToSubmit.submit();
+                } else if (typeof confirmCallback === 'function') {
+                    confirmCallback();
+                }
+                if (confirmationModal.close) confirmationModal.close();
+                else confirmationModal.style.display = 'none';
+            });
+
+            cancelBtn.addEventListener('click', function() {
+                if (confirmationModal.close) confirmationModal.close();
+                else confirmationModal.style.display = 'none';
+            });
+            
+            // Close modal if click on backdrop (for <dialog> element)
+            confirmationModal.addEventListener('click', function(event) {
+                if (event.target === confirmationModal) {
+                    if (confirmationModal.close) confirmationModal.close();
+                    else confirmationModal.style.display = 'none';
+                }
+            });
+        });
+    </script>
+    {% endblock %}
+</body>
+</html> 

@@ -1,0 +1,567 @@
+{% extends "base.html" %}
+
+{% block title %}预览数据集 - {{ dataset.name }} - {{ super() }}{% endblock %}
+
+{% block head_extra %}
+<style>
+  .filter-container {
+    margin-bottom: 1.5rem;
+  }
+  
+  .data-table {
+    width: 100%;
+    overflow-x: auto;
+  }
+  
+  .pagination-container {
+    display: flex;
+    justify-content: center;
+    margin-top: 1.5rem;
+  }
+  
+  /* 表格内容超出时显示省略号 */
+  .data-table td {
+    max-width: 250px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    -webkit-line-clamp: 3;
+    -webkit-box-orient: vertical;
+    line-height: 1.5;
+    max-height: 4.5em;
+  }
+  
+  /* 鼠标悬停时显示完整内容 */
+  .data-table td:hover {
+    white-space: normal;
+    word-break: break-word;
+    -webkit-line-clamp: unset;
+    max-height: none;
+  }
+  
+  /* 加载状态样式 */
+  .loading-container {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    min-height: 300px;
+  }
+  
+  .loading-spinner {
+    width: 50px;
+    height: 50px;
+    border: 4px solid rgba(0, 0, 0, 0.1);
+    border-radius: 50%;
+    border-left-color: hsl(var(--p));
+    animation: spin 1s linear infinite;
+  }
+  
+  @keyframes spin {
+    0% { transform: rotate(0deg); }
+    100% { transform: rotate(360deg); }
+  }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="container mx-auto px-4 py-8">
+    <div class="flex justify-between items-center mb-6">
+        <h1 class="text-2xl font-bold">{{ dataset.name }}</h1>
+        <a href="{{ url_for('datasets.datasets_list') }}" class="btn btn-ghost btn-sm">
+            <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 19l-7-7m0 0l7-7m-7 7h18" />
+            </svg>
+            返回列表
+        </a>
+    </div>
+    
+    <div class="badge badge-lg mb-4">{{ dataset.format }}</div>
+    
+    <!-- 筛选控件 -->
+    <div class="filter-container card bg-base-100 shadow-lg mb-6">
+        <div class="card-body">
+            <form id="filter-form" class="flex flex-wrap gap-4">
+                <div class="form-control">
+                    <label class="label">
+                        <span class="label-text">子数据集</span>
+                    </label>
+                    <select name="subset" id="subset-select" class="select select-bordered">
+                        {% for subset_name in subsets %}
+                        <option value="{{ subset_name }}" {% if current_subset == subset_name %}selected{% endif %}>
+                            {{ subset_name }}
+                        </option>
+                        {% endfor %}
+                    </select>
+                </div>
+                
+                <div class="form-control">
+                    <label class="label">
+                        <span class="label-text">用途</span>
+                    </label>
+                    <select name="split" id="split-select" class="select select-bordered">
+                        {% if current_subset and splits_by_subset and current_subset in splits_by_subset %}
+                            {% for split_name in splits_by_subset[current_subset] %}
+                            <option value="{{ split_name }}" {% if current_split == split_name %}selected{% endif %}>
+                                {{ split_name }}
+                            </option>
+                            {% endfor %}
+                        {% else %}
+                            <option disabled selected>没有可用的用途</option>
+                        {% endif %}
+                    </select>
+                </div>
+            </form>
+        </div>
+    </div>
+    
+    <!-- 数据表格 -->
+    <div class="card bg-base-100 shadow-lg">
+        <div class="card-body">
+            <h2 class="card-title text-xl mb-4">数据预览 <span id="total-count">(加载中...)</span></h2>
+            
+            <!-- 加载状态 -->
+            <div id="loading-container" class="loading-container">
+                <div class="loading-spinner"></div>
+            </div>
+            
+            <!-- 数据表格容器 - QA格式 -->
+            <div id="qa-data-container" class="overflow-x-auto data-table" style="display: none;">
+                <table class="table table-zebra w-full">
+                    <thead id="qa-table-header">
+                        <tr>
+                            <!-- QA格式表头将由JavaScript动态生成 -->
+                        </tr>
+                    </thead>
+                    <tbody id="qa-table-body">
+                        <!-- QA格式表格内容将由JavaScript动态生成 -->
+                    </tbody>
+                </table>
+            </div>
+            
+            <!-- 数据表格容器 - MCQ格式 -->
+            <div id="mcq-data-container" class="overflow-x-auto data-table" style="display: none;">
+                <table class="table table-zebra w-full">
+                    <thead id="mcq-table-header">
+                        <tr>
+                            <th>#</th>
+                            <th>问题</th>
+                            <!-- 选项将由JavaScript动态生成 -->
+                            <th>正确答案</th>
+                        </tr>
+                    </thead>
+                    <tbody id="mcq-table-body">
+                        <!-- MCQ格式表格内容将由JavaScript动态生成 -->
+                    </tbody>
+                </table>
+            </div>
+            
+            <!-- 数据表格容器 - 自定义格式 -->
+            <div id="fill-data-container" class="overflow-x-auto data-table" style="display: none;">
+                <table class="table table-zebra w-full">
+                    <thead>
+                        <tr>
+                            <th>#</th>
+                            <th>问题</th>
+                            <th>正确答案</th>
+                        </tr>
+                    </thead>
+                    <tbody id="fill-table-body">
+                        <!-- 自定义格式表格内容将由JavaScript动态生成 -->
+                    </tbody>
+                </table>
+            </div>
+            
+            <!-- 无数据提示 -->
+            <div id="no-data-alert" class="alert alert-warning" style="display: none;">
+                <svg xmlns="http://www.w3.org/2000/svg" class="stroke-current shrink-0 h-6 w-6" fill="none" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" /></svg>
+                <span>没有可用的预览数据。可能的原因：
+                    <ul class="list-disc list-inside mt-2">
+                        <li>未选择有效的子数据集和用途</li>
+                        <li>数据集名称(download_url字段)无效</li>
+                        <li>ModelScope API访问出错</li>
+                        <li>数据集结构信息不完整</li>
+                    </ul>
+                </span>
+            </div>
+            
+            <!-- 分页控件 -->
+            <div id="pagination-container" class="pagination-container" style="display: none;">
+                <div class="join" id="pagination-links">
+                    <!-- 分页链接将由JavaScript动态生成 -->
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+{{ super() }}
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    // 获取当前页面的基本信息
+    const datasetId = {{ dataset.id }};
+    let currentPage = {{ page }};
+    let currentSubset = "{{ current_subset }}";
+    let currentSplit = "{{ current_split }}";
+    const datasetFormat = "{{ dataset.format }}"; // 获取数据集格式
+    
+    // 预处理splits_by_subset数据
+    let splitsMap = {};
+    {% for subset, splits in splits_by_subset.items() %}
+    splitsMap["{{ subset }}"] = {{ splits|tojson }};
+    {% endfor %}
+    
+    // DOM元素引用
+    const subsetSelect = document.getElementById('subset-select');
+    const splitSelect = document.getElementById('split-select');
+    const loadingContainer = document.getElementById('loading-container');
+    const qaDataContainer = document.getElementById('qa-data-container');
+    const mcqDataContainer = document.getElementById('mcq-data-container');
+    const fillDataContainer = document.getElementById('fill-data-container');
+    const noDataAlert = document.getElementById('no-data-alert');
+    const paginationContainer = document.getElementById('pagination-container');
+    const qaTableHeader = document.getElementById('qa-table-header').querySelector('tr');
+    const mcqTableHeader = document.getElementById('mcq-table-header').querySelector('tr');
+    const qaTableBody = document.getElementById('qa-table-body');
+    const mcqTableBody = document.getElementById('mcq-table-body');
+    const fillTableBody = document.getElementById('fill-table-body');
+    const paginationLinks = document.getElementById('pagination-links');
+    const totalCountSpan = document.getElementById('total-count');
+    
+    // 加载数据函数
+    function loadData(page = 1) {
+        // 显示加载状态
+        loadingContainer.style.display = 'flex';
+        qaDataContainer.style.display = 'none';
+        mcqDataContainer.style.display = 'none';
+        fillDataContainer.style.display = 'none';
+        noDataAlert.style.display = 'none';
+        paginationContainer.style.display = 'none';
+        
+        // 构建API URL
+        const apiUrl = `/datasets/${datasetId}/data?subset=${encodeURIComponent(currentSubset)}&split=${encodeURIComponent(currentSplit)}&page=${page}`;
+        
+        // 发送AJAX请求
+        fetch(apiUrl)
+            .then(response => response.json())
+            .then(data => {
+                // 隐藏加载状态
+                loadingContainer.style.display = 'none';
+                
+                // 更新总数显示
+                totalCountSpan.textContent = `(${data.pagination.total_items} 条记录)`;
+                
+                // 判断是否有数据
+                if (data.data && data.data.length > 0) {
+                    // 根据数据集格式显示不同的表格
+                    if (datasetFormat === 'QA') {
+                        displayQAData(data);
+                    } else if (datasetFormat === 'MCQ') {
+                        displayMCQData(data);
+                    } else if (datasetFormat === 'CUSTOM') {
+                        displayFillData(data);
+                    }
+                    
+                    // 更新分页
+                    if (data.pagination.total_pages > 1) {
+                        updatePagination(data.pagination);
+                        paginationContainer.style.display = 'flex';
+                    } else {
+                        paginationContainer.style.display = 'none';
+                    }
+                } else {
+                    // 显示无数据提示
+                    noDataAlert.style.display = 'block';
+                }
+            })
+            .catch(error => {
+                console.error('加载数据失败:', error);
+                loadingContainer.style.display = 'none';
+                noDataAlert.style.display = 'block';
+                totalCountSpan.textContent = '(加载失败)';
+            });
+    }
+    
+    // 显示问答题(QA)格式数据
+    function displayQAData(data) {
+        qaDataContainer.style.display = 'block';
+        mcqDataContainer.style.display = 'none';
+        fillDataContainer.style.display = 'none';
+        
+        // 清空表头
+        qaTableHeader.innerHTML = '';
+        
+        // 如果有数据，根据服务器返回的字段顺序生成表头
+        if (data.data && data.data.length > 0 && data.field_order) {
+            const fields = data.field_order; // 使用服务器返回的字段顺序
+            
+            // 添加序号列
+            const indexTh = document.createElement('th');
+            indexTh.textContent = '#';
+            indexTh.className = 'w-16';
+            qaTableHeader.appendChild(indexTh);
+            
+            // 为每个字段添加表头
+            fields.forEach(field => {
+                const th = document.createElement('th');
+                th.textContent = field;
+                qaTableHeader.appendChild(th);
+            });
+        } else {
+            // 如果没有数据，显示默认表头
+            const defaultHeaders = ['#', '字段'];
+            defaultHeaders.forEach(header => {
+                const th = document.createElement('th');
+                th.textContent = header;
+                qaTableHeader.appendChild(th);
+            });
+        }
+        
+        // 清空表格内容
+        qaTableBody.innerHTML = '';
+        
+        // 添加数据行
+        data.data.forEach((item, index) => {
+            const tr = document.createElement('tr');
+            
+            // 添加序号列
+            const indexTd = document.createElement('td');
+            indexTd.textContent = (data.pagination.page - 1) * data.pagination.per_page + index + 1;
+            tr.appendChild(indexTd);
+            
+            // 使用服务器返回的字段顺序添加数据列
+            const fields = data.field_order || Object.keys(item);
+            fields.forEach(field => {
+                const td = document.createElement('td');
+                const value = item[field];
+                td.textContent = value !== null && value !== undefined ? value : '-';
+                td.title = value !== null && value !== undefined ? value : '-';
+                tr.appendChild(td);
+            });
+            
+            qaTableBody.appendChild(tr);
+        });
+    }
+    
+    // 显示选择题(MCQ)格式数据
+    function displayMCQData(data) {
+        mcqDataContainer.style.display = 'block';
+        qaDataContainer.style.display = 'none';
+        fillDataContainer.style.display = 'none';
+        
+        // 清空表头
+        mcqTableHeader.innerHTML = '';
+        
+        // 如果有数据，根据服务器返回的字段顺序生成表头
+        if (data.data && data.data.length > 0 && data.field_order) {
+            const fields = data.field_order; // 使用服务器返回的字段顺序
+            
+            // 添加序号列
+            const indexTh = document.createElement('th');
+            indexTh.textContent = '#';
+            indexTh.className = 'w-16';
+            mcqTableHeader.appendChild(indexTh);
+            
+            // 为每个字段添加表头
+            fields.forEach(field => {
+                const th = document.createElement('th');
+                th.textContent = field;
+                mcqTableHeader.appendChild(th);
+            });
+        } else {
+            // 如果没有数据，显示默认表头
+            const defaultHeaders = ['#', '字段'];
+            defaultHeaders.forEach(header => {
+                const th = document.createElement('th');
+                th.textContent = header;
+                mcqTableHeader.appendChild(th);
+            });
+        }
+        
+        // 清空表格内容
+        mcqTableBody.innerHTML = '';
+        
+        // 添加数据行
+        data.data.forEach((item, index) => {
+            const tr = document.createElement('tr');
+            
+            // 添加序号列
+            const indexTd = document.createElement('td');
+            indexTd.textContent = (data.pagination.page - 1) * data.pagination.per_page + index + 1;
+            tr.appendChild(indexTd);
+            
+            // 使用服务器返回的字段顺序添加数据列
+            const fields = data.field_order || Object.keys(item);
+            fields.forEach(field => {
+                const td = document.createElement('td');
+                const value = item[field];
+                td.textContent = value !== null && value !== undefined ? value : '-';
+                td.title = value !== null && value !== undefined ? value : '-';
+                
+                // 如果字段名包含answer或类似的关键词，添加特殊样式
+                if (field.toLowerCase().includes('answer') || field.toLowerCase().includes('correct')) {
+                    td.className = 'font-bold text-success';
+                }
+                
+                tr.appendChild(td);
+            });
+            
+            mcqTableBody.appendChild(tr);
+        });
+    }
+    
+    // 显示自定义格式数据
+    function displayFillData(data) {
+        fillDataContainer.style.display = 'block';
+        qaDataContainer.style.display = 'none';
+        mcqDataContainer.style.display = 'none';
+        
+        // 清空表格内容
+        fillTableBody.innerHTML = '';
+        
+        // 添加数据行
+        data.data.forEach((item, index) => {
+            const tr = document.createElement('tr');
+            
+            // 添加序号列
+            const indexTd = document.createElement('td');
+            indexTd.textContent = (data.pagination.page - 1) * data.pagination.per_page + index + 1;
+            tr.appendChild(indexTd);
+            // 添加题目列 - 拼接history和question
+            const questionTd = document.createElement('td');
+            let displayText = '';
+            
+            // 处理history字段
+            if (item.history && Array.isArray(item.history) && item.history.length > 0) {
+                item.history.forEach(turn => {
+                    if (turn.user) {
+                        displayText += `user: ${turn.user}\n`;
+                    }
+                    if (turn.assistant) {
+                        displayText += `assistant: ${turn.assistant}\n`;
+                    }
+                });
+            }
+            
+            // 添加当前问题
+            if (item.question) {
+                displayText += `user: ${item.question}`;
+            }
+            
+            questionTd.textContent = displayText || '-';
+            questionTd.title = displayText || '-';
+            questionTd.style.whiteSpace = 'pre-wrap'; // 保持换行格式
+            tr.appendChild(questionTd);
+            
+            // 添加答案列
+            const answerTd = document.createElement('td');
+            answerTd.textContent = item.answer || '-';
+            answerTd.className = 'font-bold text-success';
+            answerTd.title = item.answer || '-';
+            tr.appendChild(answerTd);
+            
+            fillTableBody.appendChild(tr);
+        });
+    }
+    
+    // 更新分页控件函数
+    function updatePagination(pagination) {
+        paginationLinks.innerHTML = '';
+        
+        // 添加上一页按钮
+        const prevBtn = document.createElement('button');
+        prevBtn.className = 'join-item btn' + (pagination.page <= 1 ? ' btn-disabled' : '');
+        prevBtn.textContent = '«';
+        if (pagination.page > 1) {
+            prevBtn.addEventListener('click', () => changePage(pagination.page - 1));
+        }
+        paginationLinks.appendChild(prevBtn);
+        
+        // 添加页码按钮
+        pagination.page_range.forEach(p => {
+            const pageBtn = document.createElement('button');
+            pageBtn.className = 'join-item btn' + (p === pagination.page ? ' btn-active' : '');
+            pageBtn.textContent = p;
+            pageBtn.addEventListener('click', () => changePage(p));
+            paginationLinks.appendChild(pageBtn);
+        });
+        
+        // 添加下一页按钮
+        const nextBtn = document.createElement('button');
+        nextBtn.className = 'join-item btn' + (pagination.page >= pagination.total_pages ? ' btn-disabled' : '');
+        nextBtn.textContent = '»';
+        if (pagination.page < pagination.total_pages) {
+            nextBtn.addEventListener('click', () => changePage(pagination.page + 1));
+        }
+        paginationLinks.appendChild(nextBtn);
+    }
+    
+    // 切换页码函数
+    function changePage(page) {
+        currentPage = page;
+        loadData(page);
+    }
+    
+    // 子数据集变更事件处理
+    subsetSelect.addEventListener('change', function() {
+        currentSubset = this.value;
+        
+        // 更新用途下拉框选项
+        updateSplitOptions();
+        
+        // 重新加载数据
+        currentPage = 1;
+        loadData(currentPage);
+    });
+    
+    // 用途变更事件处理
+    splitSelect.addEventListener('change', function() {
+        currentSplit = this.value;
+        
+        // 重新加载数据
+        currentPage = 1;
+        loadData(currentPage);
+    });
+    
+    // 更新用途下拉框选项
+    function updateSplitOptions() {
+        // 清空现有选项
+        splitSelect.innerHTML = '';
+        
+        // 获取当前子数据集的用途列表
+        const splits = splitsMap[currentSubset] || [];
+        
+        if (splits.length > 0) {
+            // 添加新选项
+            splits.forEach(split => {
+                const option = document.createElement('option');
+                option.value = split;
+                option.textContent = split;
+                splitSelect.appendChild(option);
+            });
+            
+            // 设置当前选中的用途
+            if (splits.includes(currentSplit)) {
+                splitSelect.value = currentSplit;
+            } else {
+                currentSplit = splits[0];
+                splitSelect.value = currentSplit;
+            }
+        } else {
+            // 没有可用的用途，添加禁用选项
+            const option = document.createElement('option');
+            option.disabled = true;
+            option.selected = true;
+            option.textContent = '没有可用的用途';
+            splitSelect.appendChild(option);
+            
+            // 清空当前选中的用途
+            currentSplit = '';
+        }
+    }
+    
+    // 初始加载数据
+    loadData(currentPage);
+});
+</script>
+{% endblock %} 

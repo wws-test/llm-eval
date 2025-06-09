@@ -1,0 +1,1376 @@
+{% extends "base.html" %}
+{% import "_form_helpers.html" as forms %}
+
+{% block title %}{{ title }} - {{ super() }}{% endblock %}
+
+{% block head_extra %}
+<script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+<style>
+    #chat-messages-container {
+        height: calc(100vh - 300px); /* Adjust based on your header/footer/input height */
+        overflow-y: auto;
+    }
+    .chat-message {
+        opacity: 0;
+        transform: translateY(20px);
+        animation: slideInUp 0.3s forwards;
+    }
+    @keyframes slideInUp {
+        to {
+            opacity: 1;
+            transform: translateY(0);
+        }
+    }
+    /* For typing indicator */
+    .typing-indicator span {
+        height: 8px;
+        width: 8px;
+        float: left; /* DaisyUI chat bubble content is flex, float might not be ideal but let's keep for now
+        margin: 0 1px;
+        background-color: hsl(var(--ac)); /* Use DaisyUI accent-content color */
+        display: block;
+        border-radius: 50%;
+        opacity: 1; /* Full opacity */
+        animation: typingAnimation 1s infinite ease-in-out;
+    }
+    .typing-indicator span:nth-child(1) { animation-delay: -0.32s; }
+    .typing-indicator span:nth-child(2) { animation-delay: -0.16s; }
+    @keyframes typingAnimation {
+        0%, 80%, 100% { transform: scale(0); }
+        40% { transform: scale(1.0); }
+    }
+
+    /* Drawer specific styles */
+    .drawer-side > *:not(label) {
+        max-width: 90vw; /* Sensible max-width for drawer on small screens */
+    }
+    @media (min-width: 640px) { /* sm breakpoint or adjust as needed */
+      .drawer-side > *:not(label) {
+        max-width: 420px; /* Max width for larger screens */
+      }
+    }
+    
+    /* 多模型响应样式 */
+    .model-response-container {
+        margin-top: 0.75rem;
+        margin-bottom: 0.75rem;
+    }
+    .model-header {
+        display: flex;
+        align-items: center;
+        margin-bottom: 0.25rem;
+    }
+    .model-name-badge {
+        font-size: 0.75rem;
+        padding: 0.125rem 0.375rem;
+        border-radius: 0.5rem;
+        margin-right: 0.375rem;
+    }
+
+    /* 推理模型思考过程样式 */
+    .thinking-container {
+        background: linear-gradient(135deg, #f3f4f6 0%, #e5e7eb 100%);
+        border: 1px solid #d1d5db;
+        border-radius: 0.5rem;
+        padding: 1rem;
+        margin-bottom: 0.75rem;
+        position: relative;
+    }
+    .thinking-header {
+        display: flex;
+        align-items: center;
+        margin-bottom: 0.5rem;
+        font-weight: 600;
+        color: #374151;
+        font-size: 0.875rem;
+    }
+    .thinking-content {
+        font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
+        font-size: 0.875rem;
+        line-height: 1.5;
+        color: #4b5563;
+        white-space: pre-wrap;
+        word-wrap: break-word;
+    }
+    .thinking-toggle {
+        cursor: pointer;
+        user-select: none;
+    }
+    .thinking-content.collapsed {
+        display: none;
+    }
+    .answer-content {
+        margin-top: 0.5rem;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="drawer drawer-end" style="height: calc(100vh - 64px - 5rem);"> {# Adjust height based on navbar and footer approx heights #}
+    <input id="model-config-drawer-toggle" type="checkbox" class="drawer-toggle" />
+    
+    {# Drawer Content (Main Chat Interface) #}
+    <div class="drawer-content flex flex-col">
+        <div class="flex flex-col h-full max-w-8xl mx-auto w-full">
+            {# Header for title and drawer toggle button #}
+            <div class="p-4 border-b border-base-300 flex justify-between items-center">
+                <h1 class="text-xl font-semibold">{{ title }}</h1>
+                <div class="flex items-center space-x-2">
+                    <button id="new-chat-with-config-btn" class="btn btn-success btn-sm">
+                        <i class="fas fa-plus mr-1"></i> 新对话
+                    </button>
+                    <label for="model-config-drawer-toggle" class="btn btn-primary btn-sm drawer-button">
+                        <i class="fas fa-cogs mr-1"></i> 模型配置
+                    </label>
+                </div>
+            </div>
+
+            {# Chat messages container #}
+            <div id="chat-messages-container" 
+                 class="flex-grow p-4 space-y-4 bg-base-100 rounded-b-lg overflow-y-auto"
+                 data-session-id="{{ session.id }}"
+                 data-is-model-preselected="{{ true if (current_model and current_model.id) else false }}"
+                 data-has-saved-configs="{{ true if saved_configs else false }}">
+                
+                {% for message in messages %}
+                    <div class="chat-message chat {% if message.role == 'user' %}chat-end{% else %}chat-start{% endif %}" data-message-id="{{ message.id }}">
+                        <div class="chat-header pb-1">
+                            {{ message.role | capitalize }}
+                            <time class="text-xs opacity-50 ml-1">{{ message.timestamp.strftime('%H:%M') }}</time>
+                            {% if message.role == 'assistant' and message.model_id %}
+                                <span class="text-xs opacity-60 ml-1"> ({{ message.model.display_name }})</span>
+                            {% endif %}
+                        </div>
+                        <div class="chat-bubble {% if message.role == 'user' %}chat-bubble-primary{% elif message.role == 'assistant' %}chat-bubble-accent{% else %}chat-bubble-info{% endif %}">
+                            {{ message.content }}
+                        </div>
+                    </div>
+                {% else %}
+                    <div id="empty-chat-placeholder" class="text-center text-gray-500 pt-10">
+                        <p class="text-lg">对话从这里开始。</p>
+                        <p>选择一个模型并发送您的第一条消息吧！</p>
+                    </div>
+                {% endfor %}
+                <div id="typing-indicator-container" class="chat chat-start" style="display: none;">
+                    <div class="chat-header pb-1">Assistant <span class="text-xs opacity-60 ml-1" id="typing-indicator-model-name"></span></div>
+                    <div class="chat-bubble chat-bubble-accent">
+                        <div class="typing-indicator"><span></span><span></span><span></span></div>
+                    </div>
+                </div>
+            </div>
+
+            {# Chat input form #}
+            <div class="p-4 border-t border-base-300 bg-base-200">
+                <form id="chat-form" class="flex items-center space-x-2">
+                    <textarea id="message-input" class="textarea textarea-bordered flex-grow resize-none" placeholder="输入您的消息..." rows="1"></textarea>
+                    <button type="submit" id="send-button" class="btn btn-primary">
+                        <i class="fas fa-paper-plane"></i><span class="ml-2">发送</span> 
+                    </button>
+                </form>
+            </div>
+        </div>
+    </div> 
+
+    {# Drawer Side (Model Configuration Panels) #}
+    <div class="drawer-side overflow-y-auto">
+        <label for="model-config-drawer-toggle" aria-label="close sidebar" class="drawer-overlay"></label>
+        <div class="p-4 w-full bg-base-200 text-base-content flex flex-col space-y-4 h-full">
+            <div class="flex justify-between items-center w-full mb-2">
+                <h2 class="text-lg font-semibold">模型配置</h2>
+                <button id="add-model-panel-btn" class="btn btn-sm btn-outline btn-primary">
+                    <i class="fas fa-plus mr-1"></i> 添加模型 (1/3)
+                </button>
+            </div>
+
+            <div id="model-config-panels-container" class="space-y-6 w-full flex-grow overflow-y-auto pr-1">
+                {# Model config panel template is now primarily for JS #}
+                <div class="model-config-panel p-4 border rounded-lg shadow bg-base-100" data-panel-id="1">
+                    <div class="flex justify-between items-center mb-3">
+                        <select class="model-selector select select-bordered select-sm w-full max-w-xs" data-panel-id="1">
+                            <option disabled selected>请选择一个模型...</option>
+                            {% for model in available_models %}
+                                <option value="{{ model.id }}"
+                                        data-sysprompt="{{ model.system_prompt | default('You are a helpful assistant.', true) | e }}"
+                                        data-temp="{{ model.default_temperature | default(0.7, true) }}">
+                                    {{ model.display_name }} {% if model.is_system_model %}(系统){% else %}(自定义){% endif %}
+                                </option>
+                            {% endfor %}
+                        </select>
+                        <div class="flex items-center space-x-1 ml-1 flex-shrink-0">
+                            <button class="btn btn-xs btn-ghost toggle-config-btn" data-panel-id="1" aria-expanded="false">
+                                <i class="fas fa-sliders-h"></i>
+                            </button>
+                            <button class="btn btn-xs btn-ghost text-error remove-model-btn" data-panel-id="1" style="display: none;">
+                                <i class="fas fa-times"></i>
+                            </button>
+                        </div>
+                    </div>
+                    <div class="model-parameters p-3 border-t border-base-200" style="display: none;">
+                        <div class="form-control mb-3">
+                            <label class="label">
+                                <span class="label-text">System Prompt</span>
+                            </label>
+                            <textarea class="system-prompt-input textarea textarea-bordered textarea-sm h-20" placeholder="例如：你是一个乐于助人的助手。"></textarea>
+                        </div>
+                        <div class="form-control">
+                            <label class="label">
+                                <span class="label-text">Temperature</span>
+                                <span class="temperature-value-display text-sm">0.7</span>
+                            </label>
+                            <input type="range" min="0" max="1" step="0.1" value="0.7" class="temperature-slider range range-xs range-primary" />
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+{{ super() }} {# Includes base modal and other scripts #}
+<script>
+document.addEventListener('DOMContentLoaded', function () {
+    marked.setOptions({ gfm: true, breaks: true }); // MODIFIED
+
+    const chatForm = document.getElementById('chat-form');
+    const messageInput = document.getElementById('message-input');
+    const messagesContainer = document.getElementById('chat-messages-container');
+    const sendButton = document.getElementById('send-button');
+    const emptyChatPlaceholder = document.getElementById('empty-chat-placeholder');
+    const typingIndicatorContainer = document.getElementById('typing-indicator-container');
+    const typingIndicatorModelName = document.getElementById('typing-indicator-model-name');
+
+    // --- 多模型UI控制 --- 
+    const modelPanelsContainer = document.getElementById('model-config-panels-container');
+    const addModelBtn = document.getElementById('add-model-panel-btn');
+    const MAX_MODELS = 3;
+    let modelPanelCount = 0; 
+    const sessionId = messagesContainer.dataset.sessionId;
+    const isModelPreselected = messagesContainer.dataset.isModelPreselected === 'true'; 
+    const hasSavedConfigs = messagesContainer.dataset.hasSavedConfigs === 'true';
+    let assistantRawMarkdownHolder = ''; 
+    let currentAssistantMessageBubble = null; 
+    let currentModelNameForTyping = null;
+
+    // NEW: Process initially rendered messages by Jinja2
+    const initialMessageBubbles = messagesContainer.querySelectorAll('.chat-message .chat-bubble:not(#typing-indicator-container .chat-bubble)');
+    initialMessageBubbles.forEach(bubble => {
+        const rawMarkdown = bubble.innerHTML;
+        
+        // 解码HTML实体
+        function decodeHtmlEntities(text) {
+            const textarea = document.createElement('textarea');
+            textarea.innerHTML = text;
+            return textarea.value;
+        }
+        
+        const decodedMarkdown = decodeHtmlEntities(rawMarkdown);
+        
+        // 检查是否包含推理格式 <think>xxx</think><answer>xxx</answer>
+        // 处理可能的双重think标签: <think><think>content</think>
+        let thinkAnswerRegex = /<think.*?>([\s\S]*?)<\/think><answer>([\s\S]*?)<\/answer>/;
+        let match = decodedMarkdown.match(thinkAnswerRegex);
+        
+        // 如果第一个正则不匹配，尝试第二个
+        if (!match) {
+            thinkAnswerRegex = /<think>([\s\S]*?)<\/think><answer>([\s\S]*?)<\/answer>/;
+            match = decodedMarkdown.match(thinkAnswerRegex);
+        }
+        
+        console.log('推理内容匹配结果:', match);
+        console.log('解码后内容前200字符:', decodedMarkdown.substring(0, 200));
+        console.log('是否包含<think>:', decodedMarkdown.includes('<think>'));
+        console.log('是否包含</think>:', decodedMarkdown.includes('</think>'));
+        console.log('是否包含<answer>:', decodedMarkdown.includes('<answer>'));
+        console.log('是否包含</answer>:', decodedMarkdown.includes('</answer>'));
+        
+        if (match && match[1] && match[2]) {
+            // 有推理内容，创建特殊布局
+            const thinkingText = match[1].trim();
+            const answerText = match[2].trim();
+            
+            // 清空气泡内容
+            bubble.innerHTML = '';
+            
+            // 创建思考过程容器
+            const thinkingContainer = document.createElement('div');
+            thinkingContainer.classList.add('thinking-container');
+            
+            const thinkingHeader = document.createElement('div');
+            thinkingHeader.classList.add('thinking-header', 'thinking-toggle');
+            thinkingHeader.innerHTML = '<i class="fas fa-brain mr-2"></i>💭 思考过程 <i class="fas fa-chevron-down ml-auto"></i>';
+            
+            const thinkingContent = document.createElement('div');
+            thinkingContent.classList.add('thinking-content', 'collapsed');
+            thinkingContent.textContent = thinkingText;
+            
+            thinkingContainer.appendChild(thinkingHeader);
+            thinkingContainer.appendChild(thinkingContent);
+            
+            // 添加点击折叠功能
+            thinkingHeader.addEventListener('click', () => {
+                const isCollapsed = thinkingContent.classList.contains('collapsed');
+                // 更健壮的图标查找：查找最后一个 i 元素（chevron图标）
+                const chevron = thinkingHeader.querySelector('i:last-child');
+                if (isCollapsed) {
+                    thinkingContent.classList.remove('collapsed');
+                    chevron.className = 'fas fa-chevron-up ml-auto';
+                } else {
+                    thinkingContent.classList.add('collapsed');
+                    chevron.className = 'fas fa-chevron-down ml-auto';
+                }
+            });
+            
+            // 创建答案容器
+            const answerContainer = document.createElement('div');
+            answerContainer.classList.add('answer-content');
+            answerContainer.innerHTML = marked.parse(answerText);
+            
+            // 添加到气泡
+            bubble.appendChild(thinkingContainer);
+            bubble.appendChild(answerContainer);
+        } else {
+            // 没有推理内容，正常处理
+            bubble.innerHTML = marked.parse(decodedMarkdown.trim());
+        }
+    });
+    
+    // 保存模型配置
+    async function saveModelConfigs() {
+        const configs = [];
+        const panelElements = modelPanelsContainer.querySelectorAll('.model-config-panel');
+        const selectedModelIds = new Set();
+        
+        // 先收集所有选中的模型ID，检查是否有重复
+        let hasDuplicates = false;
+        panelElements.forEach(panel => {
+            const modelSelector = panel.querySelector('.model-selector');
+            const selectedOption = modelSelector.options[modelSelector.selectedIndex];
+            if (selectedOption && selectedOption.value && selectedOption.value !== '请选择一个模型...') {
+                const modelId = parseInt(selectedOption.value);
+                if (selectedModelIds.has(modelId)) {
+                    hasDuplicates = true;
+                } else {
+                    selectedModelIds.add(modelId);
+                }
+            }
+        });
+        
+        // 如果有重复，显示警告并返回
+        if (hasDuplicates) {
+            window.showDaisyUIAlert('提示', '存在重复选择的模型，请确保每个面板选择不同的模型。');
+            return;
+        }
+        
+        // 继续正常保存逻辑
+        panelElements.forEach(panel => {
+            const modelSelector = panel.querySelector('.model-selector');
+            const selectedOption = modelSelector.options[modelSelector.selectedIndex];
+            if (selectedOption && selectedOption.value && selectedOption.value !== '请选择一个模型...') {
+                const systemPrompt = panel.querySelector('.system-prompt-input').value;
+                const temperature = parseFloat(panel.querySelector('.temperature-slider').value);
+                
+                configs.push({
+                    id: parseInt(selectedOption.value),
+                    name: selectedOption.text.replace(/ \((系统|自定义)\)/, ''),
+                    system_prompt: systemPrompt,
+                    temperature: temperature
+                });
+            }
+        });
+        
+        if (configs.length > 0) {
+            try {
+                // 保存到服务器
+                const response = await fetch(`/chat/session/${sessionId}/save_configs`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ model_configs: configs })
+                });
+                
+                if (!response.ok) {
+                    console.error('保存模型配置到服务器失败');
+                } else {
+                    // 同时保存到本地存储作为备份
+                    localStorage.setItem(`chat_model_config_${sessionId}`, JSON.stringify(configs));
+                    console.log("配置已保存到服务器和本地存储");
+                }
+            } catch (error) {
+                console.error('保存模型配置时出错:', error);
+                // 尝试只保存到本地
+                try {
+                    localStorage.setItem(`chat_model_config_${sessionId}`, JSON.stringify(configs));
+                    console.log("配置已保存到本地存储（服务器保存失败）");
+                } catch (e) {
+                    console.error("保存到本地存储也失败:", e);
+                }
+            }
+        }
+    }
+    
+    // 加载保存的配置 - 从服务器
+    function loadSavedConfigs() {
+        try {
+            // 这里使用Jinja2渲染的变量，会在服务器端处理
+            const savedConfigs = {{ saved_configs|tojson|safe }};
+            
+            if (!savedConfigs || !Array.isArray(savedConfigs) || savedConfigs.length === 0) {
+                return false;
+            }
+            
+            // 清除现有的面板
+            modelPanelsContainer.innerHTML = '';
+            
+            // 为每个保存的配置创建面板
+            savedConfigs.forEach((config, index) => {
+                const panelId = Date.now() + index;
+                const panelHTML = createModelPanelHTML(panelId);
+                modelPanelsContainer.insertAdjacentHTML('beforeend', panelHTML);
+                
+                const panel = modelPanelsContainer.querySelector(`[data-panel-id="${panelId}"]`);
+                
+                // 初始化面板事件
+                initPanelEventListeners(panel);
+                
+                // 设置模型选择器
+                const selector = panel.querySelector('.model-selector');
+                for (let i = 0; i < selector.options.length; i++) {
+                    if (parseInt(selector.options[i].value) === config.id) {
+                        selector.selectedIndex = i;
+                        break;
+                    }
+                }
+                
+                // 设置系统提示和温度
+                const promptInput = panel.querySelector('.system-prompt-input');
+                const tempSlider = panel.querySelector('.temperature-slider');
+                const tempDisplay = panel.querySelector('.temperature-value-display');
+                
+                if (config.system_prompt) {
+                    promptInput.value = config.system_prompt;
+                }
+                
+                if (config.temperature !== undefined) {
+                    tempSlider.value = config.temperature;
+                    tempDisplay.textContent = config.temperature;
+                }
+            });
+            
+            updateAddModelBtnState();
+            console.log('已从服务器恢复保存的模型配置');
+            return true;
+        } catch (error) {
+            console.error('从服务器加载模型配置时出错:', error);
+            return false;
+        }
+    }
+    
+    // 从本地存储加载配置
+    function loadSavedConfigFromLocalStorage() {
+        try {
+            const savedConfig = localStorage.getItem(`chat_model_config_${sessionId}`);
+            if (!savedConfig) return false;
+            
+            const configs = JSON.parse(savedConfig);
+            if (!Array.isArray(configs) || configs.length === 0) return false;
+            
+            // 清除现有的面板
+            modelPanelsContainer.innerHTML = '';
+            
+            // 创建新面板
+            configs.forEach((config, index) => {
+                // 添加新面板
+                const newPanelId = Date.now() + index;
+                const panelHTML = createModelPanelHTML(newPanelId);
+                modelPanelsContainer.insertAdjacentHTML('beforeend', panelHTML);
+                
+                const panel = modelPanelsContainer.querySelector(`[data-panel-id="${newPanelId}"]`);
+                initPanelEventListeners(panel);
+                
+                // 设置模型选择
+                const selector = panel.querySelector('.model-selector');
+                if (config.id) {
+                    for (let i = 0; i < selector.options.length; i++) {
+                        if (parseInt(selector.options[i].value) === config.id) {
+                            selector.selectedIndex = i;
+                            break;
+                        }
+                    }
+                }
+                
+                // 设置系统提示和温度
+                const promptInput = panel.querySelector('.system-prompt-input');
+                const tempSlider = panel.querySelector('.temperature-slider');
+                const tempDisplay = panel.querySelector('.temperature-value-display');
+                
+                if (config.system_prompt) {
+                    promptInput.value = config.system_prompt;
+                }
+                
+                if (config.temperature) {
+                    tempSlider.value = config.temperature;
+                    tempDisplay.textContent = config.temperature;
+                }
+            });
+            
+            updateAddModelBtnState();
+            console.log("已从本地存储恢复配置");
+            return true;
+        } catch (error) {
+            console.error("从本地存储恢复配置时出错:", error);
+            return false;
+        }
+    }
+    
+    // 监听模型配置的变更
+    function setupConfigChangeListeners() {
+        const panels = modelPanelsContainer.querySelectorAll('.model-config-panel');
+        panels.forEach(panel => {
+            const modelSelector = panel.querySelector('.model-selector');
+            const systemPrompt = panel.querySelector('.system-prompt-input');
+            const tempSlider = panel.querySelector('.temperature-slider');
+            
+            modelSelector.addEventListener('change', saveModelConfigs);
+            systemPrompt.addEventListener('blur', saveModelConfigs);
+            tempSlider.addEventListener('change', saveModelConfigs);
+        });
+        
+        // 监听添加和删除面板
+        addModelBtn.addEventListener('click', () => setTimeout(saveModelConfigs, 100));
+        
+        modelPanelsContainer.addEventListener('click', e => {
+            if (e.target.closest('.remove-model-btn')) {
+                setTimeout(saveModelConfigs, 100);
+            }
+        });
+    }
+    
+    // 从服务器动态加载保存的配置
+    async function loadSavedConfigsFromServer() {
+        try {
+            const response = await fetch(`/chat/session/${sessionId}/get_configs`, {
+                method: 'GET',
+                headers: { 'Content-Type': 'application/json' }
+            });
+            
+            if (!response.ok) {
+                console.log('服务器获取配置失败或配置不存在');
+                return false;
+            }
+            
+            const data = await response.json();
+            const savedConfigs = data.model_configs;
+            
+            if (!savedConfigs || !Array.isArray(savedConfigs) || savedConfigs.length === 0) {
+                console.log('服务器返回空配置');
+                return false;
+            }
+            
+            // 清除现有的面板
+            modelPanelsContainer.innerHTML = '';
+            
+            // 为每个保存的配置创建面板
+            savedConfigs.forEach((config, index) => {
+                const panelId = Date.now() + index;
+                const panelHTML = createModelPanelHTML(panelId);
+                modelPanelsContainer.insertAdjacentHTML('beforeend', panelHTML);
+                
+                const panel = modelPanelsContainer.querySelector(`[data-panel-id="${panelId}"]`);
+                
+                // 初始化面板事件
+                initPanelEventListeners(panel);
+                
+                // 设置模型选择器
+                const selector = panel.querySelector('.model-selector');
+                for (let i = 0; i < selector.options.length; i++) {
+                    if (parseInt(selector.options[i].value) === config.id) {
+                        selector.selectedIndex = i;
+                        break;
+                    }
+                }
+                
+                // 设置系统提示和温度
+                const promptInput = panel.querySelector('.system-prompt-input');
+                const tempSlider = panel.querySelector('.temperature-slider');
+                const tempDisplay = panel.querySelector('.temperature-value-display');
+                
+                if (config.system_prompt) {
+                    promptInput.value = config.system_prompt;
+                }
+                
+                if (config.temperature !== undefined) {
+                    tempSlider.value = config.temperature;
+                    tempDisplay.textContent = config.temperature;
+                }
+            });
+            
+            updateAddModelBtnState();
+            console.log('已从服务器动态加载保存的模型配置');
+            return true;
+        } catch (error) {
+            console.error('动态加载服务器配置时出错:', error);
+            return false;
+        }
+    }
+
+    // 初始化函数 - 统一处理配置加载
+    async function initializeModelPanels() {
+        let configLoaded = false;
+        
+        // 1. 首先尝试从服务器动态加载配置
+        configLoaded = await loadSavedConfigsFromServer();
+        if (configLoaded) {
+            console.log('已成功从服务器动态加载配置');
+        } else {
+            // 2. 如果动态加载失败，尝试从模板渲染的数据加载
+            configLoaded = loadSavedConfigs();
+            if (configLoaded) {
+                console.log('已成功从模板数据加载配置');
+            } else {
+                // 3. 如果模板数据也没有，尝试从本地存储加载
+                configLoaded = loadSavedConfigFromLocalStorage();
+                if (configLoaded) {
+                    console.log('已成功从本地存储加载配置');
+                }
+            }
+        }
+        
+        // 4. 如果所有方式都没有配置，创建默认面板
+        if (!configLoaded) {
+            console.log('没有找到已保存的配置，创建默认面板');
+            // 检查是否已有默认面板
+            const firstPanelInHtml = modelPanelsContainer.querySelector('.model-config-panel');
+            if (firstPanelInHtml) {
+                // 如果HTML中已有默认面板，初始化它
+                initPanelEventListeners(firstPanelInHtml);
+            } else {
+                // 创建一个新的默认面板
+                addNewModelPanel();
+            }
+        }
+        
+        // 5. 设置配置变更监听器
+        setupConfigChangeListeners();
+        
+        // 6. 更新按钮状态
+        updateAddModelBtnState();
+    }
+    
+    // 执行初始化
+    (async () => {
+        await initializeModelPanels();
+    })();
+
+    // 创建新的模型面板的HTML
+    function createModelPanelHTML(panelId) {
+        return `
+        <div class="model-config-panel p-4 border rounded-lg shadow bg-base-100" data-panel-id="${panelId}">
+            <div class="flex justify-between items-center mb-3">
+                <select class="model-selector select select-bordered select-sm w-full max-w-xs" data-panel-id="${panelId}">
+                    <option disabled selected>请选择一个模型...</option>
+                    {% for model in available_models %}
+                        <option value="{{ model.id }}"
+                                data-sysprompt="{{ model.system_prompt | default('You are a helpful assistant.', true) | e }}"
+                                data-temp="{{ model.default_temperature | default(0.7, true) }}">
+                            {{ model.display_name }} {% if model.is_system_model %}(系统){% else %}(自定义){% endif %}
+                        </option>
+                    {% endfor %}
+                </select>
+                <div class="flex items-center space-x-1 ml-1 flex-shrink-0">
+                    <button class="btn btn-xs btn-ghost toggle-config-btn" data-panel-id="${panelId}" aria-expanded="false">
+                        <i class="fas fa-sliders-h"></i>
+                    </button>
+                    <button class="btn btn-xs btn-ghost text-error remove-model-btn" data-panel-id="${panelId}">
+                        <i class="fas fa-times"></i>
+                    </button>
+                </div>
+            </div>
+            <div class="model-parameters p-3 border-t border-base-200" style="display: none;">
+                <div class="form-control mb-3">
+                    <label class="label">
+                        <span class="label-text">System Prompt</span>
+                    </label>
+                    <textarea class="system-prompt-input textarea textarea-bordered textarea-sm h-20" placeholder="例如：你是一个乐于助人的助手。"></textarea>
+                </div>
+                <div class="form-control">
+                    <label class="label">
+                        <span class="label-text">Temperature</span>
+                        <span class="temperature-value-display text-sm">0.7</span>
+                    </label>
+                    <input type="range" min="0" max="1" step="0.1" value="0.7" class="temperature-slider range range-xs range-primary" />
+                </div>
+            </div>
+        </div>
+        `;
+    }
+
+    // 添加新的模型面板
+    function addNewModelPanel() {
+        const panelCount = modelPanelsContainer.querySelectorAll('.model-config-panel').length;
+        if (panelCount >= MAX_MODELS) {
+            window.showDaisyUIAlert('提示', `最多只能添加${MAX_MODELS}个模型`);
+            return;
+        }
+        
+        const newPanelId = Date.now();
+        const panelHTML = createModelPanelHTML(newPanelId);
+        modelPanelsContainer.insertAdjacentHTML('beforeend', panelHTML);
+        
+        const newPanel = modelPanelsContainer.querySelector(`[data-panel-id="${newPanelId}"]`);
+        initPanelEventListeners(newPanel);
+        
+        updateAddModelBtnState();
+    }
+
+    // 更新添加模型按钮状态
+    function updateAddModelBtnState() {
+        const panelCount = modelPanelsContainer.querySelectorAll('.model-config-panel').length;
+        addModelBtn.textContent = `添加模型 (${panelCount}/${MAX_MODELS})`;
+        
+        if (panelCount >= MAX_MODELS) {
+            addModelBtn.classList.add('btn-disabled');
+        } else {
+            addModelBtn.classList.remove('btn-disabled');
+        }
+        
+        // 处理删除按钮的显示/隐藏
+        const removeBtns = modelPanelsContainer.querySelectorAll('.remove-model-btn');
+        removeBtns.forEach(btn => {
+            if (panelCount <= 1) {
+                btn.style.display = 'none'; // 只有一个面板时隐藏删除按钮
+            } else {
+                btn.style.display = 'flex'; // 多个面板时显示删除按钮
+            }
+        });
+    }
+
+    // 为添加模型按钮绑定事件
+    addModelBtn.addEventListener('click', addNewModelPanel);
+
+    // 新对话按钮事件处理
+    const newChatWithConfigBtn = document.getElementById('new-chat-with-config-btn');
+    newChatWithConfigBtn.addEventListener('click', async function() {
+        try {
+            // 获取当前的模型配置
+            const currentConfigs = [];
+            const panelElements = modelPanelsContainer.querySelectorAll('.model-config-panel');
+            
+            panelElements.forEach(panel => {
+                const modelSelector = panel.querySelector('.model-selector');
+                const selectedOption = modelSelector.options[modelSelector.selectedIndex];
+                if (selectedOption && selectedOption.value && selectedOption.value !== '请选择一个模型...') {
+                    const systemPrompt = panel.querySelector('.system-prompt-input').value;
+                    const temperature = parseFloat(panel.querySelector('.temperature-slider').value);
+                    
+                    currentConfigs.push({
+                        id: parseInt(selectedOption.value),
+                        name: selectedOption.text.replace(/ \((系统|自定义)\)/, ''),
+                        system_prompt: systemPrompt,
+                        temperature: temperature
+                    });
+                }
+            });
+            
+            if (currentConfigs.length === 0) {
+                window.showDaisyUIAlert('提示', '请先配置至少一个模型后再开启新对话');
+                return;
+            }
+            
+            // 禁用按钮并显示加载状态
+            newChatWithConfigBtn.disabled = true;
+            newChatWithConfigBtn.innerHTML = '<span class="loading loading-spinner loading-xs"></span> 创建中...';
+            
+            // 创建新会话并保存配置
+            const response = await fetch('/chat/new_with_config', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-CSRFToken': document.querySelector('meta[name="csrf-token"]').getAttribute('content')
+                },
+                body: JSON.stringify({
+                    model_configs: currentConfigs
+                })
+            });
+            
+            if (response.ok) {
+                const data = await response.json();
+                // 跳转到新的会话页面
+                window.location.href = `/chat/session/${data.session_id}`;
+            } else {
+                const errorData = await response.json();
+                window.showDaisyUIAlert('错误', errorData.error || '创建新对话失败');
+            }
+        } catch (error) {
+            console.error('创建新对话时出错:', error);
+            window.showDaisyUIAlert('错误', '创建新对话时发生错误');
+        } finally {
+            // 恢复按钮状态
+            newChatWithConfigBtn.disabled = false;
+            newChatWithConfigBtn.innerHTML = '<i class="fas fa-plus mr-1"></i> 新对话';
+        }
+    });
+
+    // 初始化面板事件监听器
+    function initPanelEventListeners(panelElement) {
+        const panelId = panelElement.dataset.panelId;
+        const modelSelectorElement = panelElement.querySelector('.model-selector');
+        const toggleBtn = panelElement.querySelector('.toggle-config-btn');
+        const paramsDiv = panelElement.querySelector('.model-parameters');
+        const systemPromptInput = panelElement.querySelector('.system-prompt-input');
+        const tempSlider = panelElement.querySelector('.temperature-slider');
+        const tempValueDisplay = panelElement.querySelector('.temperature-value-display');
+        const removeBtn = panelElement.querySelector('.remove-model-btn');
+
+        modelSelectorElement.addEventListener('change', function() {
+            const selectedOption = this.options[this.selectedIndex];
+            if (selectedOption && selectedOption.value && selectedOption.value !== '请选择一个模型...') {
+                // 检查是否有其他面板已经选择了相同的模型
+                const otherSelectors = Array.from(document.querySelectorAll('.model-selector')).filter(sel => sel !== this);
+                const isDuplicate = otherSelectors.some(sel => {
+                    const otherOption = sel.options[sel.selectedIndex];
+                    return otherOption && otherOption.value === selectedOption.value;
+                });
+                
+                if (isDuplicate) {
+                    window.showDaisyUIAlert('提示', `该模型已被选择，请选择其他模型。`);
+                    // 重置为默认选项
+                    this.selectedIndex = 0;
+                    return;
+                }
+                
+                systemPromptInput.value = selectedOption.dataset.sysprompt || '';
+                const temp = selectedOption.dataset.temp || '0.7';
+                tempSlider.value = temp;
+                tempValueDisplay.textContent = temp;
+                
+                // 保存配置
+                saveModelConfigs();
+            }
+        });
+
+        toggleBtn.addEventListener('click', () => {
+            const isExpanded = paramsDiv.style.display === 'block';
+            paramsDiv.style.display = isExpanded ? 'none' : 'block';
+            toggleBtn.setAttribute('aria-expanded', String(!isExpanded));
+        });
+
+        tempSlider.addEventListener('input', () => {
+            tempValueDisplay.textContent = tempSlider.value;
+        });
+        
+        // 保存温度配置
+        tempSlider.addEventListener('change', saveModelConfigs);
+        
+        // 保存系统提示
+        systemPromptInput.addEventListener('blur', saveModelConfigs);
+
+        if(removeBtn) { // Ensure removeBtn exists, though it always should from template
+            removeBtn.addEventListener('click', () => {
+                if (modelPanelsContainer.querySelectorAll('.model-config-panel').length > 1) {
+                    panelElement.remove();
+                    updateAddModelBtnState();
+                    
+                    // 保存配置
+                    saveModelConfigs();
+                }
+            });
+        }
+    }
+
+    function scrollToBottom() { messagesContainer.scrollTop = messagesContainer.scrollHeight; }
+    scrollToBottom(); 
+
+    // 键盘事件处理 - 回车发送消息
+    messageInput.addEventListener('input', function () {
+        this.style.height = 'auto';
+        this.style.height = (this.scrollHeight) + 'px';
+    });
+    messageInput.addEventListener('keydown', function(event) {
+        if (event.key === 'Enter' && !event.shiftKey) {
+            event.preventDefault();
+            chatForm.requestSubmit();
+        }
+    });
+
+    // 表单提交处理
+    chatForm.addEventListener('submit', async function (e) {
+        e.preventDefault(); // 阻止默认表单提交行为，避免页面刷新
+        const messageContent = messageInput.value.trim();
+        
+        const activeModelConfigs = [];
+        const panelElements = modelPanelsContainer.querySelectorAll('.model-config-panel');
+        let hasValidModelSelected = false;
+        panelElements.forEach(panel => {
+            const modelSelectorEl = panel.querySelector('.model-selector');
+            const selectedOption = modelSelectorEl.options[modelSelectorEl.selectedIndex];
+            if (selectedOption && selectedOption.value && selectedOption.value !== '请选择一个模型...') {
+                hasValidModelSelected = true;
+                const systemPrompt = panel.querySelector('.system-prompt-input').value;
+                const temperature = parseFloat(panel.querySelector('.temperature-slider').value);
+                activeModelConfigs.push({
+                    id: parseInt(selectedOption.value),
+                    name: selectedOption.text.replace(/ \((系统|自定义)\)/, ''),
+                    system_prompt: systemPrompt,
+                    temperature: temperature
+                });
+            }
+        });
+
+        if (!messageContent || !hasValidModelSelected) {
+            const alertMessage = !messageContent ? '消息内容不能为空！' : '请至少选择一个有效的AI模型！';
+            window.showDaisyUIAlert('输入提示', alertMessage);
+            return;
+        }
+
+        messageInput.disabled = true;
+        sendButton.classList.add('btn-disabled');
+        sendButton.innerHTML = `<span class="loading loading-spinner loading-xs"></span>发送中...`;
+        if(emptyChatPlaceholder) emptyChatPlaceholder.style.display = 'none';
+
+        addMessageToUI('user', messageContent, new Date().toISOString(), null);
+        messageInput.value = '';
+        messageInput.style.height = 'auto'; 
+        scrollToBottom();
+
+        // 为每个模型创建一个响应容器和打字指示器
+        const modelResponseElements = {};
+        activeModelConfigs.forEach(modelConfig => {
+            const modelId = modelConfig.id;
+            const modelName = modelConfig.name;
+            
+            // 创建模型响应容器
+            const modelResponseDiv = document.createElement('div');
+            modelResponseDiv.classList.add('chat-message', 'chat', 'chat-start');
+            modelResponseDiv.dataset.modelId = modelId;
+            
+            // 创建模型标题 - 与原有格式一致
+            const modelHeader = document.createElement('div');
+            modelHeader.classList.add('chat-header', 'pb-1');
+            
+            const currentTime = new Date().toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'});
+            modelHeader.textContent = `Assistant ${currentTime} (${modelName})`;
+            
+            modelResponseDiv.appendChild(modelHeader);
+            
+            // 创建模型响应气泡
+            const modelBubble = document.createElement('div');
+            modelBubble.classList.add('chat-bubble', 'chat-bubble-accent');
+            
+            // 创建打字指示器
+            const typingIndicatorDiv = document.createElement('div');
+            typingIndicatorDiv.classList.add('typing-indicator');
+            typingIndicatorDiv.innerHTML = '<span></span><span></span><span></span>';
+            modelBubble.appendChild(typingIndicatorDiv);
+            
+            modelResponseDiv.appendChild(modelBubble);
+            
+            // 直接添加到消息容器
+            messagesContainer.appendChild(modelResponseDiv);
+            
+            // 保存元素引用
+            modelResponseElements[modelId] = {
+                container: modelResponseDiv,
+                header: modelHeader,
+                bubble: modelBubble,
+                typingIndicator: typingIndicatorDiv,
+                rawMarkdown: ''
+            };
+        });
+        
+        scrollToBottom();
+
+        const requestBody = { message: messageContent, models: activeModelConfigs };
+        const csrfToken = document.querySelector('meta[name="csrf-token"]').getAttribute('content');
+        const headers = {
+            'Content-Type': 'application/json',
+            'Accept': 'text/event-stream',
+            'X-CSRFToken': csrfToken
+        };
+        
+        try {
+            const response = await fetch(`/chat/session/${sessionId}/send`, {
+                method: 'POST', headers: headers, body: JSON.stringify(requestBody)
+            });
+
+            if (!response.ok || !response.body) {
+                for (const modelId in modelResponseElements) {
+                    const elements = modelResponseElements[modelId];
+                    if (elements.typingIndicator) {
+                        elements.typingIndicator.remove();
+                    }
+                    elements.bubble.classList.remove('chat-bubble-accent');
+                    elements.bubble.classList.add('chat-bubble-info');
+                    elements.bubble.innerHTML = `<span>请求失败: ${response.status}</span>`;
+                }
+                resetInputControls();
+                scrollToBottom();
+                return;
+            }
+
+            const reader = response.body.getReader();
+            const decoder = new TextDecoder();
+            let buffer = '';
+
+            while (true) {
+                const { value, done } = await reader.read();
+                if (done) break;
+
+                buffer += decoder.decode(value, { stream: true });
+                let eolIndex;
+                while ((eolIndex = buffer.indexOf('\n\n')) >= 0) {
+                    const line = buffer.substring(0, eolIndex).trim();
+                    buffer = buffer.substring(eolIndex + 2);
+                    
+                    if (line.startsWith('data:')) {
+                        const jsonData = line.substring(5).trim();
+                        try {
+                            const eventData = JSON.parse(jsonData);
+                            
+                            // 检查是否收到所有模型完成的事件
+                            if (eventData.all_models_completed) {
+                                console.log('所有模型响应已完成');
+                                continue;
+                            }
+                            
+                            // 获取当前事件所属的模型ID
+                            const modelId = eventData.model_id;
+                            if (!modelId || !modelResponseElements[modelId]) {
+                                console.error('收到未知模型的响应:', eventData);
+                                continue;
+                            }
+                            
+                            const elements = modelResponseElements[modelId];
+                            
+                            // 处理错误事件
+                            if (eventData.error) {
+                                if (elements.typingIndicator) {
+                                    elements.typingIndicator.remove();
+                                }
+                                elements.bubble.classList.remove('chat-bubble-accent');
+                                elements.bubble.classList.add('chat-bubble-info');
+                                elements.bubble.innerHTML = `<span>错误: ${eventData.details || eventData.error}</span>`;
+                                console.error(`模型 ${eventData.model_name} (${modelId}) 发生错误:`, eventData);
+                                continue;
+                            }
+                            
+                            // 处理内容片段
+                            if (eventData.content_piece !== undefined) {
+                                // 移除打字指示器
+                                if (elements.typingIndicator && elements.typingIndicator.parentNode) {
+                                    elements.typingIndicator.remove();
+                                    elements.typingIndicator = null;
+                                }
+                                
+                                // 追加内容
+                                elements.rawMarkdown += eventData.content_piece;
+                                
+                                // 记录接收到的内容片段
+                                console.debug(`收到模型 ${eventData.model_name} 的内容: "${eventData.content_piece}"`);
+                                
+                                // 如果已经有思考过程容器，只更新答案部分
+                                if (elements.thinkingContainer) {
+                                    // 确保有答案容器
+                                    if (!elements.answerContainer) {
+                                        elements.answerContainer = document.createElement('div');
+                                        elements.answerContainer.classList.add('answer-content');
+                                        elements.bubble.appendChild(elements.answerContainer);
+                                    }
+                                    
+                                    // 解析并渲染答案内容
+                                    let markdownToParse = elements.rawMarkdown;
+                                    const mdBlockRegex = /^```markdown\s*\n([\s\S]*?)\s*\n```$/;
+                                    const match = markdownToParse.match(mdBlockRegex);
+                                    if (match && match[1]) markdownToParse = match[1];
+                                    
+                                    elements.answerContainer.innerHTML = marked.parse(markdownToParse);
+                                    scrollToBottom();
+                                } else {
+                                    // 没有思考过程容器，正常渲染
+                                    let markdownToParse = elements.rawMarkdown;
+                                    const mdBlockRegex = /^```markdown\s*\n([\s\S]*?)\s*\n```$/;
+                                    const match = markdownToParse.match(mdBlockRegex);
+                                    if (match && match[1]) markdownToParse = match[1];
+                                    
+                                    // 使用requestAnimationFrame确保UI更新不被阻塞
+                                    requestAnimationFrame(() => {
+                                        elements.bubble.innerHTML = marked.parse(markdownToParse);
+                                        scrollToBottom();
+                                    });
+                                }
+                            }
+                            
+                            // 处理推理内容片段
+                            if (eventData.reasoning_piece !== undefined) {
+                                // 移除打字指示器
+                                if (elements.typingIndicator && elements.typingIndicator.parentNode) {
+                                    elements.typingIndicator.remove();
+                                    elements.typingIndicator = null;
+                                }
+                                
+                                // 初始化推理容器
+                                if (!elements.thinkingContainer) {
+                                    const thinkingContainer = document.createElement('div');
+                                    thinkingContainer.classList.add('thinking-container');
+                                    
+                                    const thinkingHeader = document.createElement('div');
+                                    thinkingHeader.classList.add('thinking-header', 'thinking-toggle');
+                                    thinkingHeader.innerHTML = '<i class="fas fa-brain mr-2"></i>💭 思考过程 <i class="fas fa-chevron-up ml-auto"></i>';
+                                    
+                                    const thinkingContent = document.createElement('div');
+                                    thinkingContent.classList.add('thinking-content');
+                                    
+                                    thinkingContainer.appendChild(thinkingHeader);
+                                    thinkingContainer.appendChild(thinkingContent);
+                                    
+                                    // 添加点击折叠功能
+                                    thinkingHeader.addEventListener('click', () => {
+                                        const isCollapsed = thinkingContent.classList.contains('collapsed');
+                                        // 更健壮的图标查找：查找最后一个 i 元素（chevron图标）
+                                        const chevron = thinkingHeader.querySelector('i:last-child');
+                                        if (isCollapsed) {
+                                            thinkingContent.classList.remove('collapsed');
+                                            chevron.className = 'fas fa-chevron-up ml-auto';
+                                        } else {
+                                            thinkingContent.classList.add('collapsed');
+                                            chevron.className = 'fas fa-chevron-down ml-auto';
+                                        }
+                                    });
+                                    
+                                    elements.bubble.appendChild(thinkingContainer);
+                                    elements.thinkingContainer = thinkingContainer;
+                                    elements.thinkingContent = thinkingContent;
+                                    elements.reasoningText = '';
+                                }
+                                
+                                // 追加推理内容
+                                elements.reasoningText += eventData.reasoning_piece;
+                                elements.thinkingContent.textContent = elements.reasoningText;
+                                
+                                console.debug(`收到模型 ${eventData.model_name} 的推理内容: "${eventData.reasoning_piece}"`);
+                                scrollToBottom();
+                            }
+                            
+                            // 处理最终块
+                            if (eventData.is_final_chunk) {
+                                console.log(`模型 ${eventData.model_name} (${modelId}) 响应完成`);
+                                
+                                // 如果仍有打字指示器，移除它
+                                if (elements.typingIndicator && elements.typingIndicator.parentNode) {
+                                    elements.typingIndicator.remove();
+                                    elements.typingIndicator = null;
+                                }
+                                
+                                // 确保最终内容已被正确渲染
+                                if (eventData.full_content) {
+                                    elements.rawMarkdown = eventData.full_content;
+                                    
+                                    // 解码HTML实体
+                                    function decodeHtmlEntities(text) {
+                                        const textarea = document.createElement('textarea');
+                                        textarea.innerHTML = text;
+                                        return textarea.value;
+                                    }
+                                    
+                                    const decodedContent = decodeHtmlEntities(elements.rawMarkdown);
+                                    
+                                    // 检查是否包含推理格式 <think>xxx</think><answer>xxx</answer>
+                                    // 处理可能的双重think标签: <think><think>content</think>
+                                    let thinkAnswerRegex = /<think.*?>([\s\S]*?)<\/think><answer>([\s\S]*?)<\/answer>/;
+                                    let match = decodedContent.match(thinkAnswerRegex);
+                                    
+                                    // 如果第一个正则不匹配，尝试第二个
+                                    if (!match) {
+                                        thinkAnswerRegex = /<think>([\s\S]*?)<\/think><answer>([\s\S]*?)<\/answer>/;
+                                        match = decodedContent.match(thinkAnswerRegex);
+                                    }
+                                    
+                                    console.log('最终块推理内容匹配结果:', match);
+                                    
+                                    if (match && match[1] && match[2]) {
+                                        // 有推理内容
+                                        const thinkingText = match[1].trim();
+                                        const answerText = match[2].trim();
+                                        
+                                        // 检查是否已经有思考过程容器（流式创建的）
+                                        if (elements.thinkingContainer) {
+                                            // 更新已有的思考内容
+                                            elements.thinkingContent.textContent = thinkingText;
+                                            
+                                            // 更新或创建答案容器
+                                            if (elements.answerContainer) {
+                                                elements.answerContainer.innerHTML = marked.parse(answerText);
+                                            } else {
+                                                const answerContainer = document.createElement('div');
+                                                answerContainer.classList.add('answer-content');
+                                                answerContainer.innerHTML = marked.parse(answerText);
+                                                elements.bubble.appendChild(answerContainer);
+                                                elements.answerContainer = answerContainer;
+                                            }
+                                        } else {
+                                            // 没有流式思考容器，创建完整布局
+                                            elements.bubble.innerHTML = '';
+                                            
+                                            // 创建思考过程容器
+                                            const thinkingContainer = document.createElement('div');
+                                            thinkingContainer.classList.add('thinking-container');
+                                            
+                                            const thinkingHeader = document.createElement('div');
+                                            thinkingHeader.classList.add('thinking-header', 'thinking-toggle');
+                                            thinkingHeader.innerHTML = '<i class="fas fa-brain mr-2"></i>💭 思考过程 <i class="fas fa-chevron-up ml-auto"></i>';
+                                            
+                                            const thinkingContent = document.createElement('div');
+                                            thinkingContent.classList.add('thinking-content');
+                                            thinkingContent.textContent = thinkingText;
+                                            
+                                            thinkingContainer.appendChild(thinkingHeader);
+                                            thinkingContainer.appendChild(thinkingContent);
+                                            
+                                            // 添加点击折叠功能
+                                            thinkingHeader.addEventListener('click', () => {
+                                                const isCollapsed = thinkingContent.classList.contains('collapsed');
+                                                // 更健壮的图标查找：查找最后一个 i 元素（chevron图标）
+                                                const chevron = thinkingHeader.querySelector('i:last-child');
+                                                if (isCollapsed) {
+                                                    thinkingContent.classList.remove('collapsed');
+                                                    chevron.className = 'fas fa-chevron-up ml-auto';
+                                                } else {
+                                                    thinkingContent.classList.add('collapsed');
+                                                    chevron.className = 'fas fa-chevron-down ml-auto';
+                                                }
+                                            });
+                                            
+                                            // 创建答案容器
+                                            const answerContainer = document.createElement('div');
+                                            answerContainer.classList.add('answer-content');
+                                            answerContainer.innerHTML = marked.parse(answerText);
+                                            
+                                            // 添加到气泡
+                                            elements.bubble.appendChild(thinkingContainer);
+                                            elements.bubble.appendChild(answerContainer);
+                                        }
+                                    } else {
+                                        // 没有推理内容，正常处理
+                                        let markdownToParse = elements.rawMarkdown;
+                                        const mdBlockRegex = /^```markdown\s*\n([\s\S]*?)\s*\n```$/;
+                                        const mdMatch = markdownToParse.match(mdBlockRegex);
+                                        if (mdMatch && mdMatch[1]) markdownToParse = mdMatch[1];
+                                        
+                                        elements.bubble.innerHTML = marked.parse(markdownToParse);
+                                    }
+                                    
+                                    scrollToBottom();
+                                }
+                            }
+                        } catch (e) {
+                            console.error('解析SSE事件数据时发生错误:', e, jsonData);
+                            for (const modelId in modelResponseElements) {
+                                const elements = modelResponseElements[modelId];
+                                if (elements.typingIndicator && elements.typingIndicator.parentNode) {
+                                    elements.typingIndicator.remove();
+                                }
+                                elements.bubble.classList.remove('chat-bubble-accent');
+                                elements.bubble.classList.add('chat-bubble-info');
+                                if (!elements.bubble.innerHTML || elements.bubble.innerHTML.includes('typing-indicator')) {
+                                    elements.bubble.innerHTML = '<span>解析响应数据时发生错误</span>';
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        } catch (error) {
+            console.error('流获取错误:', error);
+            for (const modelId in modelResponseElements) {
+                const elements = modelResponseElements[modelId];
+                if (elements.typingIndicator && elements.typingIndicator.parentNode) {
+                    elements.typingIndicator.remove();
+                }
+                elements.bubble.classList.remove('chat-bubble-accent');
+                elements.bubble.classList.add('chat-bubble-info');
+                elements.bubble.innerHTML = `<span>主要请求错误: ${error.message}</span>`;
+            }
+        } finally {
+            resetInputControls();
+            scrollToBottom();
+        }
+    });
+
+    function resetInputControls() {
+        messageInput.disabled = false;
+        sendButton.classList.remove('btn-disabled');
+        sendButton.innerHTML = `<i class="fas fa-paper-plane"></i><span class="ml-2">发送</span>`;
+        typingIndicatorContainer.style.display = 'none';
+    }
+
+    // Modified addMessageToUI for general use, multi-model display will require more.
+    function addMessageToUI(role, content, timestamp, settings, shouldScroll = true, messageElementId = null) {
+        const messageDiv = document.createElement('div');
+        if (messageElementId) messageDiv.id = messageElementId;
+        messageDiv.classList.add('chat-message', 'chat', role === 'user' ? 'chat-end' : 'chat-start');
+        
+        const header = document.createElement('div');
+        header.classList.add('chat-header', 'pb-1');
+        header.textContent = role.charAt(0).toUpperCase() + role.slice(1);
+        const time = document.createElement('time');
+        time.classList.add('text-xs', 'opacity-50', 'ml-1');
+        time.textContent = new Date(timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+        header.appendChild(time);
+
+        if (role === 'assistant' && settings && (settings.model_identifier || settings.model_id) ) {
+            const modelNameSpan = document.createElement('span');
+            modelNameSpan.classList.add('text-xs', 'opacity-60', 'ml-1');
+            let modelDisplayName = settings.model_identifier; // Prefer identifier from settings if available
+            if (!modelDisplayName && settings.model_id) { // Fallback to trying to find from a global selector (less ideal now)
+                 const anyModelSelector = document.querySelector('.model-selector'); // Generic selector, might not be the one being configured
+                 if (anyModelSelector) {
+                    const optionElement = anyModelSelector.querySelector(`option[value="${settings.model_id}"]`);
+                    if (optionElement) modelDisplayName = optionElement.text.replace(/ \((系统|自定义)\)/, '');
+                 }
+            }
+            modelNameSpan.textContent = ` (${modelDisplayName || '模型'})`;
+            header.appendChild(modelNameSpan);
+        }
+        
+        const bubble = document.createElement('div');
+        bubble.classList.add('chat-bubble');
+        if (role === 'user') bubble.classList.add('chat-bubble-primary');
+        else if (role === 'assistant') bubble.classList.add('chat-bubble-accent');
+        else if (role === 'system') bubble.classList.add('chat-bubble-info'); 
+        else bubble.classList.add('chat-bubble-info'); // Default for other roles
+        
+        // Content setting needs to be careful: if it's pre-rendered markdown, fine.
+        // If it's raw text for user/system, also fine.
+        // For assistant messages handled by streaming markdown, this might be an empty initial set.
+        if (role === 'assistant' && content === '') { // Empty initial content for streaming markdown from assistant
+            bubble.innerHTML = '';
+        } else if (typeof content === 'string') {
+             // For history messages (already parsed markdown) or user/system messages (plain text)
+             // If content for historical assistant messages is raw markdown, it's handled by the DOMContentLoaded loop
+            bubble.innerHTML = content.replace(/\n/g, '<br>'); // Basic newline handling for non-markdown text
+        }
+        
+        messageDiv.appendChild(header);
+        messageDiv.appendChild(bubble);
+
+        messagesContainer.appendChild(messageDiv);
+
+        if (shouldScroll) scrollToBottom();
+        return messageDiv;
+    }
+
+    // 处理历史消息中的Markdown
+    const historicalAssistantBubbles = messagesContainer.querySelectorAll('.chat-message.chat-start .chat-bubble-accent');
+    historicalAssistantBubbles.forEach(bubble => {
+        let rawMarkdown = bubble.innerHTML;
+        rawMarkdown = rawMarkdown.replace(/<br\s*\/?>/g, "\n"); 
+        const mdBlockRegex = /^```markdown\s*\n([\s\S]*?)\s*\n```$/;
+        const match = rawMarkdown.match(mdBlockRegex);
+        if (match && match[1]) {
+            rawMarkdown = match[1];
+            bubble.innerHTML = marked.parse(rawMarkdown);
+        }
+    });
+});
+</script>
+{% endblock %} 

@@ -1,0 +1,273 @@
+{% extends "base.html" %}
+
+{% block title %}{{ super() }} - {{ title }}{% endblock %}
+
+{% block head_extra %}
+<style>
+    .metric-name {
+        border-bottom: 1px dashed #666;
+        cursor: pointer;
+        transition: all 0.2s ease;
+    }
+    
+    .metric-name:hover {
+        border-bottom-color: hsl(var(--p));
+        color: hsl(var(--p));
+    }
+    
+    .percentile-header {
+        border-bottom: 1px dashed #666;
+        cursor: pointer;
+        transition: all 0.2s ease;
+    }
+    
+    .percentile-header:hover {
+        border-bottom-color: hsl(var(--p));
+        color: hsl(var(--p));
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="container mx-auto px-4 py-8">
+    <div class="flex justify-between items-center mb-6">
+        <h1 class="text-3xl font-bold">{{ title }} (ID: {{ task.id }})</h1>
+        {% if source == 'create' %}
+        <a href="{{ url_for('perf_eval.create') }}" class="btn btn-outline btn-secondary">返回创建页面</a>
+        {% else %}
+        <a href="{{ url_for('perf_eval.history') }}" class="btn btn-outline btn-secondary">返回历史列表</a>
+        {% endif %}
+    </div>
+
+    <div class="card bg-base-100 shadow-xl mb-8">
+        <div class="card-body">
+            <h2 class="card-title text-xl mb-4">评估参数</h2>
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <p><strong>模型名称:</strong> {{ task.model_name }}</p>
+                <p><strong>数据集:</strong> {{ task.dataset_name }}</p>
+                <p><strong>并发路数:</strong> {{ task.concurrency }}</p>
+                <p><strong>请求数量:</strong> {{ task.num_requests }}</p>
+                <p><strong>状态:</strong> 
+                    <span id="task-status" class="badge 
+                        {% if task.status == 'completed' %}badge-success
+                        {% elif task.status == 'running' %}badge-info
+                        {% elif task.status == 'pending' %}badge-warning
+                        {% elif task.status == 'failed' %}badge-error
+                        {% else %}badge-ghost{% endif %}
+                    ">{{ task.status }}</span>
+                    {% if task.status == 'pending' or task.status == 'running' %}
+                    <span class="loading loading-spinner loading-xs ml-2"></span>
+                    {% endif %}
+                </p>
+                <p><strong>创建时间:</strong> {{ task.created_at.strftime('%Y-%m-%d %H:%M:%S') if task.created_at else 'N/A' }}</p>
+                {% if task.started_at %}
+                <p><strong>开始时间:</strong> {{ task.started_at.strftime('%Y-%m-%d %H:%M:%S') }}</p>
+                {% endif %}
+                {% if task.completed_at %}
+                <p><strong>完成时间:</strong> {{ task.completed_at.strftime('%Y-%m-%d %H:%M:%S') }}</p>
+                {% endif %}
+                {% if task.status == 'failed' and task.error_message %}
+                <p class="col-span-full text-error"><strong>错误信息:</strong> {{ task.error_message }}</p>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+
+    {% if task.status == 'pending' or task.status == 'running' %}
+    <div class="card bg-base-100 shadow-xl mb-8">
+        <div class="card-body">
+            <h2 class="card-title text-xl mb-4">任务进行中</h2>
+            <div class="flex flex-col items-center justify-center p-8">
+                <span class="loading loading-spinner loading-lg text-primary"></span>
+                <p class="mt-4">性能评估任务正在执行中，请耐心等待。页面将自动刷新显示最新状态。</p>
+            </div>
+        </div>
+    </div>
+    {% endif %}
+
+    {% if task.summary_results or task.percentile_results %}
+    <div class="space-y-6">
+        <!-- 性能汇总指标 -->
+        {% if task.summary_results %}
+        <div class="card bg-base-100 shadow-xl">
+            <div class="card-body">
+                <h2 class="card-title text-xl mb-4">
+                    <i class="fas fa-chart-line mr-2"></i>性能汇总指标
+                </h2>
+                <div class="overflow-x-auto">
+                    <table class="table table-zebra w-full">
+                        <thead>
+                            <tr>
+                                <th class="text-left">指标名称</th>
+                                <th class="text-right">数值</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for line in task.summary_results.split('\n') %}
+                                {% if line.strip() and '|' in line %}
+                                    {% set parts = line.split('|') %}
+                                    {% if parts|length >= 2 %}
+                                    <tr>
+                                        <td class="font-medium">
+                                            <span class="metric-name" onclick="showMetricExplanation('{{ parts[0].strip() }}')">
+                                                {{ parts[0].strip() }}
+                                            </span>
+                                        </td>
+                                        <td class="text-right font-mono">
+                                            {% set value = parts[1].strip() %}
+                                            {% if 'throughput' in parts[0].lower() or 'req/s' in value %}
+                                                <span class="badge badge-primary">{{ value }}</span>
+                                            {% elif 'latency' in parts[0].lower() or 'time' in parts[0].lower() %}
+                                                <span class="badge badge-secondary">{{ value }}</span>
+                                            {% elif 'requests' in parts[0].lower() %}
+                                                <span class="badge badge-accent">{{ value }}</span>
+                                            {% elif 'failed' in parts[0].lower() %}
+                                                <span class="badge badge-error">{{ value }}</span>
+                                            {% elif 'succeed' in parts[0].lower() %}
+                                                <span class="badge badge-success">{{ value }}</span>
+                                            {% else %}
+                                                <span class="badge badge-ghost">{{ value }}</span>
+                                            {% endif %}
+                                        </td>
+                                    </tr>
+                                    {% endif %}
+                                {% endif %}
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+        {% endif %}
+
+        <!-- 百分位指标 -->
+        {% if task.percentile_results %}
+        <div class="card bg-base-100 shadow-xl">
+            <div class="card-body">
+                <h2 class="card-title text-xl mb-4">
+                    <i class="fas fa-chart-bar mr-2"></i>百分位指标
+                </h2>
+                
+                <div class="overflow-x-auto">
+                    {% set percentile_data = {} %}
+                    {% for line in task.percentile_results.split('\n') %}
+                        {% if line.strip() and '|' in line %}
+                            {% set parts = line.split('|') %}
+                            {% if parts|length >= 2 %}
+                                {% set key = parts[0].strip() %}
+                                {% set values = parts[1].strip().split(',') %}
+                                {% set _ = percentile_data.update({key: values}) %}
+                            {% endif %}
+                        {% endif %}
+                    {% endfor %}
+                    
+                    {% if percentile_data and 'Percentiles' in percentile_data %}
+                    <table class="table table-zebra w-full">
+                        <thead>
+                            <tr>
+                                <th class="text-center">百分位</th>
+                                {% for key in percentile_data.keys() %}
+                                    {% if key != 'Percentiles' %}
+                                    <th class="text-center">
+                                        <span class="percentile-header" onclick="showPercentileExplanation('{{ key }}')">
+                                            {{ key }}
+                                        </span>
+                                    </th>
+                                    {% endif %}
+                                {% endfor %}
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for i in range(percentile_data['Percentiles']|length) %}
+                            <tr>
+                                <td class="text-center font-bold">
+                                    <span class="badge badge-outline">{{ percentile_data['Percentiles'][i] }}</span>
+                                </td>
+                                {% for key, values in percentile_data.items() %}
+                                    {% if key != 'Percentiles' and i < values|length %}
+                                    <td class="text-center font-mono">
+                                        {% set value = values[i].strip() %}
+                                        {% if 'TTFT' in key or 'ITL' in key or 'TPOT' in key or 'Latency' in key %}
+                                            <span class="text-secondary">{{ value }}</span>
+                                        {% elif 'throughput' in key.lower() %}
+                                            <span class="text-primary">{{ value }}</span>
+                                        {% elif 'tokens' in key.lower() %}
+                                            <span class="text-accent">{{ value }}</span>
+                                        {% else %}
+                                            {{ value }}
+                                        {% endif %}
+                                    </td>
+                                    {% endif %}
+                                {% endfor %}
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                    {% else %}
+                    <div class="alert alert-warning">
+                        <i class="fas fa-exclamation-triangle"></i>
+                        <span>百分位数据格式异常，无法解析</span>
+                    </div>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+        {% endif %}
+
+    </div>
+    {% endif %}
+
+</div>
+{% endblock %}
+
+{% block scripts %}
+{{ super() }}
+{% if task.status == 'pending' or task.status == 'running' %}
+<script>
+    // 每3秒自动刷新页面，直到任务完成
+    setTimeout(function() {
+        window.location.reload();
+    }, 3000);
+</script>
+{% endif %}
+
+<script>
+// 性能汇总指标说明 - 从后端服务传递
+const metricExplanations = {{ metric_explanations | tojson }};
+
+// 百分位指标说明 - 从后端服务传递  
+const percentileExplanations = {{ percentile_explanations | tojson }};
+
+// 显示性能汇总指标说明
+function showMetricExplanation(metricName) {
+    const explanation = metricExplanations[metricName];
+    if (explanation) {
+        showDaisyUIAlert(
+            explanation.title,
+            `<div class="space-y-2">
+                <p><strong>说明：</strong>${explanation.description}</p>
+                <p><strong>计算公式：</strong>${explanation.formula}</p>
+            </div>`
+        );
+    } else {
+        showDaisyUIAlert('指标说明', `暂无 "${metricName}" 的详细说明`);
+    }
+}
+
+// 显示百分位指标说明
+function showPercentileExplanation(metricName) {
+    const explanation = percentileExplanations[metricName];
+    if (explanation) {
+        showDaisyUIAlert(
+            explanation.title,
+            `<div class="space-y-2">
+                <p><strong>说明：</strong>${explanation.description}</p>
+                <p class="text-sm opacity-70"><strong>注：</strong>以单个请求为单位进行统计，数据被分为100个相等部分，第n百分位表示n%的数据点在此值之下。</p>
+            </div>`
+        );
+    } else {
+        showDaisyUIAlert('指标说明', `暂无 "${metricName}" 的详细说明`);
+    }
+}
+</script>
+{% endblock %} 
