@@ -12,8 +12,6 @@ import os
 # 动态创建DataAdapter类  
 class CustomDatasetAdapter(DataAdapter): 
     def __init__(self, **kwargs):
-        # 不使用裁判模型
-        self.llm_as_a_judge = False
         # 初始化模板环境
         template_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'templates')
         self.env = Environment(loader=FileSystemLoader(template_dir))
@@ -32,7 +30,7 @@ class CustomDatasetAdapter(DataAdapter):
             self.template = self.env.from_string(template_content)
             
             # 验证必需的宏是否存在
-            required_macros = ['gen_prompt', 'get_gold_answer', 'match', 'parse_pred_result', 'compute_metric']
+            required_macros = ['gen_prompt', 'get_gold_answer', 'match', 'parse_pred_result', 'compute_metric', 'get_config']
             missing_macros = []
             for macro_name in required_macros:
                 if not hasattr(self.template.module, macro_name):
@@ -40,6 +38,10 @@ class CustomDatasetAdapter(DataAdapter):
             
             if missing_macros:
                 raise ValueError(f"模板缺少以下必需的宏：{', '.join(missing_macros)}")
+            
+            # 从模板获取配置
+            config = json.loads(self.template.module.get_config())
+            self.llm_as_a_judge = config.get('llm_as_a_judge', False)
                 
         except Exception as e:
             raise ValueError(f"加载 Jinja2 模板失败：{str(e)}")

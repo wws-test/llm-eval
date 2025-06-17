@@ -91,6 +91,13 @@
                 </label>
                 {{ form.jinja2_template(class="textarea textarea-bordered w-full h-64 font-mono", placeholder='{# 自定义数据集不填写jinja2模版将无法进行效果评估，但是不影响性能评估 #}
 
+{# 获取数据集配置 #}
+{% macro get_config() %}
+{
+    "llm_as_a_judge": false  {# 是否使用LLM作为裁判，默认为false #}
+}
+{% endmacro %}
+
 {# 自定义提示词生成 #}
 {% macro gen_prompt(system_prompt, history, user_prompt) %}
 {# 自定义提示词生成逻辑 #}

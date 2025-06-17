@@ -172,8 +172,14 @@ python run.py --debug
 以落域抽槽为例：
 ```jinja2
 {# 意图识别评估模板 #}
+{# 1. 配置 #}
+{% macro get_config() %}
+{
+    "llm_as_a_judge": true  {# 使用LLM作为裁判 #}
+}
+{% endmacro %}
 
-{# 1. 生成提示词 #}
+{# 2. 生成提示词 #}
 {% macro gen_prompt(system_prompt, history, user_prompt) %}
 {% set final_user_prompt = user_prompt %}
 {% if history %}
@@ -191,12 +197,12 @@ python run.py --debug
 }
 {% endmacro %}
 
-{# 2. 获取标准答案 #}
+{# 3. 获取标准答案 #}
 {% macro get_gold_answer(input_d) %}
 {{ input_d.get('answer', '') }}
 {% endmacro %}
 
-{# 3. 解析预测结果 #}
+{# 4. 解析预测结果 #}
 {% macro parse_pred_result(result) %}
 {% set text = result.strip() %}
 {% set text = text.strip("```json").strip("```") %}
@@ -213,7 +219,7 @@ python run.py --debug
 {% endif %}
 {% endmacro %}
 
-{# 4. 比较预测结果和标准答案 #}
+{# 5. 比较预测结果和标准答案 #}
 {% macro match(gold, pred) %}
 {# 调试日志：输入参数 #}
 
@@ -272,7 +278,7 @@ python run.py --debug
 {% endif %}
 {% endmacro %}
 
-{# 5. 计算评估指标 #}
+{# 6. 计算评估指标 #}
 {% macro compute_metric(review_res_list) %}
 {# 使用列表来记录各种情况 #}
 {% set intent_correct_list = [] %}
