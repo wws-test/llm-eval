@@ -126,7 +126,7 @@ class Dataset(db.Model):
     dataset_type = db.Column(db.String(50), nullable=False, default='系统', server_default='系统')
     visibility = db.Column(db.String(50), nullable=False, default='公开', server_default='公开')
     format = db.Column(db.String(50), nullable=False, default='QA', server_default='QA')
-    benchmark_name = db.Column(db.String(100), nullable=False, default='general_qa', server_default='general_qa')  # 新增benchmark_name字段
+    jinja2_template = db.Column(LONGTEXT, nullable=True)  # 修改为存储模板内容
     is_active = db.Column(db.Boolean, nullable=False, default=True, server_default='1')
     
     # 多对多关系到 DatasetCategory
@@ -283,8 +283,7 @@ def init_database_data():
                     'dataset_type': '系统',
                     'visibility': '公开',
                     'format': 'MCQ',
-                    'is_active': 1,
-                    'benchmark_name': 'ceval'
+                    'is_active': 1
                 },
                 {
                     'id': 29,
@@ -297,8 +296,7 @@ def init_database_data():
                     'dataset_type': '系统',
                     'visibility': '公开',
                     'format': 'MCQ',
-                    'is_active': 1,
-                    'benchmark_name': 'iquiz'
+                    'is_active': 1
                 },
                 {
                     'id': 35,
@@ -311,8 +309,7 @@ def init_database_data():
                     'dataset_type': '系统',
                     'visibility': '公开',
                     'format': 'QA',
-                    'is_active': 1,
-                    'benchmark_name': 'iquiz'
+                    'is_active': 1
                 },
             ]
             

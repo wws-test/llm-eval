@@ -19,7 +19,7 @@ import logging
 from evalscope.perf.main import run_perf_benchmark
 
 # 导入自定义数据集插件，确保装饰器能够正确注册
-from app.adapter.custom_intent_dataset_plugin import CustomIntentDatasetPlugin
+from app.adapter.custom_dataset_plugin import CustomDatasetPlugin
 
 
 class PerformanceEvaluationService:
@@ -473,7 +473,7 @@ class PerformanceEvaluationService:
                 if not selected_dataset:
                     current_app.logger.error(f"找不到数据集ID为 {dataset_id} 的数据集")
                     return
-                dataset = selected_dataset.benchmark_name
+                dataset = "custom_dataset"
 
             # 构建evalscope配置
             task_cfg = {
@@ -483,7 +483,8 @@ class PerformanceEvaluationService:
                 "number": num_requests,
                 "api": 'openai',
                 "dataset": dataset,
-                "stream": True
+                "stream": True,
+                "api_key": selected_model.encrypted_api_key
             }
             if dataset != 'openqa':
                 task_cfg['dataset_path'] = selected_dataset.download_url

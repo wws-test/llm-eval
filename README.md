@@ -167,12 +167,152 @@ python run.py --debug
 
 ### 自定义数据集
 如果你的数据集不是[选择题](#qa格式)、[问答题](#mcq格式)，你可能需要自定义数据集来满足自己的需求。
-下面以意图识别和槽位抽取为例。
-1. 做效果评估时，需要新建一个adapter放到adapter目录下，以custom_开头即可。如custom_intent_adapter.py
-2. 创建一个类继承DataAdapter，并实现其中的load(数据集加载)、gen_prompt(prompt构建)、get_gold_answer(参考答案获取)、parse_pred_result(大模型预测结果格式化)、match(gold-pred对比，输出dict)、compute_metric(根据match结果计算最终指标)方法
-【注: 使用动态注册是因为即将发布的版本支持DSL注册adapter】，可以参考文件[custom_intent_adapter.py](app/adapter/custom_intent_adapter.py)
-3. 以上步骤完成后就可以在效果评估时选择自定义数据集以及刚刚注册上的adapter了
-4. 如果做性能评估需要自定义prompt，可以参考文件[custom_intent_dataset_plugin.py](app/adapter/custom_intent_dataset_plugin.py)
+自定义数据集使用Jinja2模版来实现数据字段和指标的定义。模板需要包含宏：gen_prompt, get_gold_answer, match, parse_pred_result,compute_metric
+
+以落域抽槽为例：
+```jinja2
+{# 意图识别评估模板 #}
+
+{# 1. 生成提示词 #}
+{% macro gen_prompt(system_prompt, history, user_prompt) %}
+{% set final_user_prompt = user_prompt %}
+{% if history %}
+    {% set history_prompt = '' %}
+    {% for h in history %}
+        {% for k, v in h.items() %}
+            {% set history_prompt = history_prompt ~ k ~ ': ' ~ v ~ '\n' %}
+        {% endfor %}
+    {% endfor %}
+    {% set final_user_prompt = "用户的对话内容如下：\n" ~ history_prompt ~ "user: " ~ user_prompt ~ "\n可以使用的工具及其参数为：\n" %}
+{% endif %}
+{
+    "system_prompt": {{ system_prompt | to_json }},
+    "user_prompt": {{ final_user_prompt | to_json }}
+}
+{% endmacro %}
+
+{# 2. 获取标准答案 #}
+{% macro get_gold_answer(input_d) %}
+{{ input_d.get('answer', '') }}
+{% endmacro %}
+
+{# 3. 解析预测结果 #}
+{% macro parse_pred_result(result) %}
+{% set text = result.strip() %}
+{% set text = text.strip("```json").strip("```") %}
+
+{% set parsed = none %}
+{% if text is string %}
+    {% set parsed = text | from_json %}
+{% endif %}
+
+{% if parsed is not none %}
+    {{ parsed | to_json }}
+{% else %}
+    {{ text }}
+{% endif %}
+{% endmacro %}
+
+{# 4. 比较预测结果和标准答案 #}
+{% macro match(gold, pred) %}
+{# 调试日志：输入参数 #}
+
+{% set gold_data = gold | from_json %}
+{% set pred_data = pred | from_json %}
+
+{% if gold_data is mapping and pred_data is mapping %}
+    {# 比较意图 #}
+    {% set intent_match = gold_data.get('intent', '') == pred_data.get('intent', '') %}
+    
+    {# 比较槽位 #}
+    {% set gold_slots = gold_data.get('slots', {}) %}
+    {% set pred_slots = pred_data.get('slots', {}) %}
+
+    {# 使用列表来记录各种情况 #}
+    {% set miss_slots = [] %}
+    {% set correct_slots = [] %}
+    {% set fail_slots = [] %}
+    
+    {# 遍历黄金标准中的槽位 #}
+    {% for key, value in gold_slots.items() %}
+        {% if value != '' %}
+            {% if key not in pred_slots %}
+                {% set _ = miss_slots.append(key) %}
+            {% elif pred_slots[key] == value %}
+                {% set _ = correct_slots.append(key) %}
+            {% else %}
+                {% set _ = fail_slots.append(key) %}
+            {% endif %}
+        {% endif %}
+    {% endfor %}
+
+    
+    {# 计算最终结果 #}
+    {% set miss_count = miss_slots | length %}
+    {% set correct_count = correct_slots | length %}
+    {% set fail_count = fail_slots | length %}
+    
+    {
+        "intent_result": {{ intent_match | to_json }},
+        "slots_result": {
+            "miss_count": {{ miss_count }},
+            "correct_count": {{ correct_count }},
+            "fail_count": {{ fail_count }}
+        }
+    }
+{% else %}
+    {
+        "intent_result": {{ (gold == pred) | to_json }},
+        "slots_result": {
+            "miss_count": 0,
+            "correct_count": {{ 1 if gold == pred else 0 }},
+            "fail_count": {{ 0 if gold == pred else 1 }}
+        }
+    }
+{% endif %}
+{% endmacro %}
+
+{# 5. 计算评估指标 #}
+{% macro compute_metric(review_res_list) %}
+{# 使用列表来记录各种情况 #}
+{% set intent_correct_list = [] %}
+{% set tp_list = [] %}
+{% set fp_list = [] %}
+{% set fn_list = [] %}
+
+{% for item in review_res_list %}
+    {% if item.intent_result %}
+        {% set _ = intent_correct_list.append(1) %}
+        {% set _ = tp_list.append(item.slots_result.correct_count) %}
+        {% set _ = fp_list.append(item.slots_result.fail_count) %}
+        {% set _ = fn_list.append(item.slots_result.miss_count) %}
+    {% endif %}
+{% endfor %}
+
+{% set intent_correct_count = intent_correct_list | sum %}
+{% set all_tp = tp_list | sum %}
+{% set all_fp = fp_list | sum %}
+{% set all_fn = fn_list | sum %}
+
+{% set precision = all_tp / (all_tp + all_fp + 1e-10) %}
+{% set recall = all_tp / (all_tp + all_fn + 1e-10) %}
+{% set f1 = 2 * precision * recall / (precision + recall + 1e-10) %}
+
+[
+    {
+        "metric_name": "intent_correct_score",
+        "score": {{ 0 if review_res_list|length == 0 else intent_correct_count * 1.0 / review_res_list|length }},
+        "num": {{ review_res_list|length }}
+    },
+    {
+        "metric_name": "slot_f1",
+        "score": {{ f1 }},
+        "num": {{ all_fn + all_fp + all_tp }}
+    }
+]
+{% endmacro %}
+```
+
 
 ### 项目结构
 

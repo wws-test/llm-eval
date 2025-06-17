@@ -3,7 +3,7 @@ from flask_login import login_required, current_user # 添加用户认证相关�
 from app import db # 数据库实例
 from app.models import Dataset, DatasetCategory # 数据模型
 from app.forms import CustomDatasetForm # Import the new form
-from app.services.dataset_service import DatasetService, get_available_benchmarks # 导入数据集服务
+from app.services.dataset_service import DatasetService
 import json # For parsing sample_data_json
 import os # For os.path.join
 from werkzeug.utils import secure_filename # For secure filenames
@@ -82,9 +82,6 @@ def add_custom_dataset():
     form = CustomDatasetForm()
     # Populate category choices dynamically
     form.categories.choices = [(cat.id, cat.name) for cat in DatasetCategory.query.order_by('name').all()]
-    
-    # 动态设置benchmark选项（排除general类型，因为会自动设置）
-    form.benchmark_name.choices = get_available_benchmarks(exclude_general=True)
 
     if form.validate_on_submit():
         try:
@@ -100,226 +97,119 @@ def add_custom_dataset():
                 flash(f'数据集名称 "{dataset_name}" 已存在，请使用其他名称。', 'error')
                 return render_template('datasets/add_custom_dataset.html', title='添加自定义数据集', form=form)
             
-            # 根据format自动设置benchmark_name
-            selected_format = form.format.data
-            if selected_format == 'QA':
-                benchmark_name = 'general_qa'
-            elif selected_format == 'MCQ':
-                benchmark_name = 'general_mcq'
-            else:
-                # 对于其他自定义格式，使用用户选择的benchmark
-                benchmark_name = form.benchmark_name.data
-                if not benchmark_name:
-                    flash('自定义格式数据集必须选择Benchmark类型', 'error')
+            if form.jinja2_template.data:
+                # 验证Jinja2模板是否包含所需的宏
+                required_macros = ['gen_prompt', 'get_gold_answer', 'match', 'parse_pred_result', 'compute_metric']
+                template_content = form.jinja2_template.data
+                missing_macros = []
+                for macro in required_macros:
+                    if f'macro {macro}' not in template_content:
+                        missing_macros.append(macro)
+                
+                if missing_macros:
+                    flash(f'Jinja2模板缺少以下必需的宏：{", ".join(missing_macros)}', 'error')
                     return render_template('datasets/add_custom_dataset.html', title='添加自定义数据集', form=form)
-            
+                
             # Process categories from selected IDs
             category_objects = []
             if form.categories.data:
-                for cat_id_str in form.categories.data:
-                    try:
-                        cat_id = int(cat_id_str)
-                        category = db.session.get(DatasetCategory, cat_id) # More direct way to get by PK with SQLAlchemy 2.0+
-                        if category:
-                            category_objects.append(category)
-                    except ValueError:
-                        flash(f'无效的分类ID: {cat_id_str}', 'warning')
+                category_objects = DatasetCategory.query.filter(DatasetCategory.id.in_(form.categories.data)).all()
             
-            # Handle file upload
-            dataset_info_data = {}
+            # 处理文件上传
             if form.dataset_file.data:
                 file = form.dataset_file.data
-                filename = secure_filename(file.filename)
-                
-                # 验证文件格式与所选数据集格式是否匹配
-                selected_format = form.format.data
-                file_ext = os.path.splitext(filename)[1].lower()
-                
-                if selected_format == 'QA' and not file_ext == '.jsonl':
-                    flash('问答题格式(QA)需要上传JSONL文件', 'error')
-                    return render_template('datasets/add_custom_dataset.html', title='添加自定义数据集', form=form)
-                
-                if selected_format == 'MCQ' and not file_ext == '.csv':
-                    flash('选择题格式(MCQ)需要上传CSV文件', 'error')
-                    return render_template('datasets/add_custom_dataset.html', title='添加自定义数据集', form=form)
-                
-                if selected_format == 'CUSTOM' and not file_ext == '.jsonl':
-                    flash('自定义格式需要上传JSONL文件', 'error')
-                    return render_template('datasets/add_custom_dataset.html', title='添加自定义数据集', form=form)
-                
-                if filename: # Ensure filename is not empty after secure_filename
-                    upload_folder = current_app.config.get('DATA_UPLOADS_DIR', os.path.join(current_app.root_path, 'uploads'))
-                    if not os.path.exists(upload_folder):
-                        os.makedirs(upload_folder, exist_ok=True)
+                if file and file.filename:
+                    # 确保文件名安全
+                    filename = secure_filename(file.filename)
+                    # 创建用户特定的上传目录
+                    upload_dir = os.path.join(current_app.config['DATA_UPLOADS_DIR'], current_user.username)
+                    os.makedirs(upload_dir, exist_ok=True)
                     
-                    # 重命名文件为：用户id_数据集名.后缀名
-                    file_ext = os.path.splitext(filename)[1].lower()
-                    new_filename = f"{current_user.id}_{dataset_name}{file_ext}"
-                    file_path = os.path.join(upload_folder, new_filename)
+                    # 生成新的文件名（添加时间戳以避免重名）
+                    timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+                    new_filename = f"{timestamp}_{filename}"
+                    file_path = os.path.join(upload_dir, new_filename)
+                    
+                    # 保存文件
                     file.save(file_path)
                     
-                    # 检查文件大小，避免处理过大的文件
-                    file_size = os.path.getsize(file_path)
-                    max_file_size = current_app.config.get('DATASET_MAX_FILE_SIZE', 50 * 1024 * 1024)
-                    
-                    if file_size > max_file_size:
-                        os.remove(file_path)  # 删除上传的文件
-                        flash(f'文件过大 ({file_size / 1024 / 1024:.1f}MB)，请上传小于{max_file_size / 1024 / 1024:.0f}MB的文件', 'error')
-                        return render_template('datasets/add_custom_dataset.html', title='添加自定义数据集', form=form)
-
-                    # 验证文件内容格式
-                    try:
-                        if selected_format == 'QA':
-                            # 验证JSONL文件格式 - 优化：只验证前5行
-                            with open(file_path, 'r', encoding='utf-8') as f:
-                                line_count = 0
-                                validated_lines = 0
-                                for line in f:
-                                    line_count += 1
-                                    
-                                    # 只验证前5行就足够了
-                                    if line_count <= 5:
-                                        line = line.strip()
-                                        if line:  # 跳过空行
-                                            try:
-                                                data = json.loads(line)
-                                                # 验证必要字段
-                                                if 'query' not in data or 'response' not in data:
-                                                    flash(f'文件第{line_count}行格式错误: 缺少必要字段 "query" 或 "response"', 'error')
-                                                    return render_template('datasets/add_custom_dataset.html', title='添加自定义数据集', form=form)
-                                                validated_lines += 1
-                                            except json.JSONDecodeError:
-                                                flash(f'文件第{line_count}行JSON格式错误', 'error')
-                                                return render_template('datasets/add_custom_dataset.html', title='添加自定义数据集', form=form)
-                                    else:
-                                        # 验证完前5行就退出
-                                        break
-                                
-                                # 检查是否有有效数据
-                                if validated_lines == 0:
-                                    flash('文件为空或前5行没有有效的数据', 'error')
-                                    return render_template('datasets/add_custom_dataset.html', title='添加自定义数据集', form=form)
-                                
-                                # 创建数据集结构信息
-                                subset_name = os.path.splitext(new_filename)[0]
-                                dataset_info_data = {
-                                    subset_name: {
-                                        "features": {
-                                            "system": {"dtype": "string", "id": None, "_type": "Value"},
-                                            "query": {"dtype": "string", "id": None, "_type": "Value"},
-                                            "response": {"dtype": "string", "id": None, "_type": "Value"}
-                                        },
-                                        "splits": {
-                                            "test": {
-                                                "name": "test", 
-                                                "dataset_name": subset_name
-                                            }
-                                        }
-                                    }
-                                }
+                    # 根据文件类型处理数据
+                    if filename.endswith('.jsonl'):
+                        # 处理JSONL文件
+                        validated_lines = 0
+                        with open(file_path, 'r', encoding='utf-8') as f:
+                            for i, line in enumerate(f):
+                                if i >= 5:  # 只检查前5行
+                                    break
+                                try:
+                                    json.loads(line.strip())
+                                    validated_lines += 1
+                                except json.JSONDecodeError:
+                                    continue
                         
-                        elif selected_format == 'MCQ':
-                            # 验证CSV文件格式 - 已经比较高效，只验证头部
-                            import csv
-                            
-                            with open(file_path, 'r', encoding='utf-8') as f:
-                                reader = csv.reader(f)
-                                headers = next(reader, None)  # 获取标题行
-                                
-                                if not headers or len(headers) < 3:  # 至少需要question, 一个选项, answer
-                                    flash('CSV文件格式错误: 缺少必要的列', 'error')
-                                    return render_template('datasets/add_custom_dataset.html', title='添加自定义数据集', form=form)
-                                
-                                # 验证标题行必要字段
-                                required_fields = ['question', 'answer']
-                                for field in required_fields:
-                                    if field not in headers:
-                                        flash(f'CSV文件格式错误: 缺少必要的列 "{field}"', 'error')
-                                        return render_template('datasets/add_custom_dataset.html', title='添加自定义数据集', form=form)
-                                
-                                # 验证是否有选项列 (A, B, C...)
-                                option_columns = [h for h in headers if h in 'ABCDEFGHIJ']
-                                if not option_columns:
-                                    flash('CSV文件格式错误: 缺少选项列 (A, B, C...)', 'error')
-                                    return render_template('datasets/add_custom_dataset.html', title='添加自定义数据集', form=form)
-                                
-                                # 创建数据集结构信息
-                                subset_name = os.path.splitext(new_filename)[0]
-                                # 动态创建features，包含所有检测到的选项列
-                                features = {
-                                    "id": {"dtype": "int32", "id": None, "_type": "Value"},
-                                    "question": {"dtype": "string", "id": None, "_type": "Value"}
-                                }
-                                # 添加选项列
-                                for option in option_columns:
-                                    features[option] = {"dtype": "string", "id": None, "_type": "Value"}
-                                features["answer"] = {"dtype": "string", "id": None, "_type": "Value"}
-                                
-                                dataset_info_data = {
-                                    subset_name: {
-                                        "features": features,
-                                        "splits": {
-                                            "test": {
-                                                "name": "test", 
-                                                "dataset_name": subset_name
-                                            }
-                                        }
-                                    }
-                                }
+                        # 检查是否有有效数据
+                        if validated_lines == 0:
+                            flash('文件为空或前5行没有有效的数据', 'error')
+                            return render_template('datasets/add_custom_dataset.html', title='添加自定义数据集', form=form)
                         
-                        elif selected_format == 'CUSTOM':
-                            with open(file_path, 'r', encoding='utf-8') as f:
-                                line_count = 0
-                                validated_lines = 0
-                                for line in f:
-                                    line_count += 1
-                                    
-                                    # 只验证前5行就足够了
-                                    if line_count <= 5:
-                                        line = line.strip()
-                                        if line:  # 跳过空行
-                                            try:
-                                                data = json.loads(line)
-                                                # 验证必要字段
-                                                if 'question' not in data or 'answer' not in data:
-                                                    flash(f'文件第{line_count}行格式错误: 缺少必要字段 "question" 或 "answer"', 'error')
-                                                    return render_template('datasets/add_custom_dataset.html', title='添加自定义数据集', form=form)
-                                                validated_lines += 1
-                                            except json.JSONDecodeError:
-                                                flash(f'文件第{line_count}行JSON格式错误', 'error')
-                                                return render_template('datasets/add_custom_dataset.html', title='添加自定义数据集', form=form)
-                                    else:
-                                        # 验证完前5行就退出
-                                        break
-                                
-                                # 检查是否有有效数据
-                                if validated_lines == 0:
-                                    flash('文件为空或前5行没有有效的数据', 'error')
-                                    return render_template('datasets/add_custom_dataset.html', title='添加自定义数据集', form=form)
-                                
-                                # 创建数据集结构信息
-                                subset_name = os.path.splitext(new_filename)[0]
-                                dataset_info_data = {
-                                    subset_name: {
-                                        "features": {
-                                            "system": {"dtype": "string", "id": None, "_type": "Value"},
-                                            "history": {"dtype": "string", "id": None, "_type": "Value"},
-                                            "question": {"dtype": "string", "id": None, "_type": "Value"},
-                                            "answer": {"dtype": "string", "id": None, "_type": "Value"}
-                                        },
-                                        "splits": {
-                                            "test": {
-                                                "name": "test", 
-                                                "dataset_name": subset_name
-                                            }
+                        # 创建数据集结构信息
+                        subset_name = os.path.splitext(new_filename)[0]
+                        dataset_info_data = {
+                            subset_name: {
+                                "features": {
+                                    "system": {"dtype": "string", "id": None, "_type": "Value"},
+                                    "query": {"dtype": "string", "id": None, "_type": "Value"},
+                                    "response": {"dtype": "string", "id": None, "_type": "Value"}
+                                },
+                                "splits": {
+                                    "test": {
+                                        "name": "test", 
+                                        "dataset_name": subset_name
+                                    }
+                                }
+                            }
+                        }
+                    elif filename.endswith('.csv'):
+                        # 处理CSV文件
+                        import pandas as pd
+                        try:
+                            df = pd.read_csv(file_path)
+                            # 验证CSV文件格式
+                            required_columns = ['question', 'answer']
+                            option_columns = [col for col in df.columns if col in ['A', 'B', 'C', 'D']]
+                            
+                            if not all(col in df.columns for col in required_columns):
+                                flash('CSV文件必须包含question和answer列', 'error')
+                                return render_template('datasets/add_custom_dataset.html', title='添加自定义数据集', form=form)
+                            
+                            if not option_columns:
+                                flash('CSV文件必须包含A、B、C、D选项列', 'error')
+                                return render_template('datasets/add_custom_dataset.html', title='添加自定义数据集', form=form)
+                            
+                            # 动态创建features，包含所有检测到的选项列
+                            features = {
+                                "id": {"dtype": "int32", "id": None, "_type": "Value"},
+                                "question": {"dtype": "string", "id": None, "_type": "Value"}
+                            }
+                            # 添加选项列
+                            for option in option_columns:
+                                features[option] = {"dtype": "string", "id": None, "_type": "Value"}
+                            features["answer"] = {"dtype": "string", "id": None, "_type": "Value"}
+                            
+                            dataset_info_data = {
+                                subset_name: {
+                                    "features": features,
+                                    "splits": {
+                                        "test": {
+                                            "name": "test", 
+                                            "dataset_name": subset_name
                                         }
                                     }
                                 }
-                            
-                    except Exception as e:
-                        flash(f'验证文件格式时出错: {str(e)}', 'error')
-                        current_app.logger.error(f"Error validating file: {e}")
-                        return render_template('datasets/add_custom_dataset.html', title='添加自定义数据集', form=form)
+                            }
+                        except Exception as e:
+                            flash(f'处理CSV文件时出错：{str(e)}', 'error')
+                            return render_template('datasets/add_custom_dataset.html', title='添加自定义数据集', form=form)
                 else:
                     flash('上传的文件名无效。', 'warning')
             else:
@@ -341,7 +231,7 @@ def add_custom_dataset():
                 dataset_type='自建',
                 visibility=form.visibility.data,
                 format=form.format.data,
-                benchmark_name=benchmark_name,
+                jinja2_template=form.jinja2_template.data if form.format.data == 'CUSTOM' else None,
                 categories=category_objects
             )
             db.session.add(new_dataset)
@@ -359,8 +249,6 @@ def add_custom_dataset():
     # For GET request or if form validation failed, re-render with choices populated
     if not form.categories.choices: # Ensure choices are set if validation failed and it's a POST
         form.categories.choices = [(cat.id, cat.name) for cat in DatasetCategory.query.order_by('name').all()]
-        # 重新设置benchmark选项
-        form.benchmark_name.choices = get_available_benchmarks(exclude_general=True)
         
     return render_template('datasets/add_custom_dataset.html', title='添加自定义数据集', form=form) 
 

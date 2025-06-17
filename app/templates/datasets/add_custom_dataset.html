@@ -22,7 +22,7 @@
                 <label class="label" for="{{ form.format.id }}">
                     <span class="label-text">{{ form.format.label.text }}<span class="text-error">*</span></span>
                 </label>
-                {{ form.format(class="select select-bordered w-full", id="dataset-format") }}
+                {{ form.format(class="select select-bordered w-full") }}
                 {% if form.format.errors %}
                     <label class="label">
                         <span class="label-text-alt text-error">
@@ -30,28 +30,6 @@
                         </span>
                     </label>
                 {% endif %}
-                {% if form.format.description %}
-                    <label class="label pt-0">
-                        <span class="label-text-alt">{{ form.format.description }}</span>
-                    </label>
-                {% endif %}
-            </div>
-
-            <div class="form-control w-full" id="benchmark-field">
-                <label class="label" for="{{ form.benchmark_name.id }}">
-                    <span class="label-text">{{ form.benchmark_name.label.text }}<span class="text-error">*</span></span>
-                </label>
-                {{ form.benchmark_name(class="select select-bordered w-full") }}
-                {% if form.benchmark_name.errors %}
-                    <label class="label">
-                        <span class="label-text-alt text-error">
-                            {% for error in form.benchmark_name.errors %}{{ error }}<br>{% endfor %}
-                        </span>
-                    </label>
-                {% endif %}
-                <label class="label pt-0">
-                    <span class="label-text-alt">用于选择对应的adapter对数据进行评估，这里只显示注册成功的适配器</span>
-                </label>
             </div>
 
             <div class="form-control">
@@ -105,6 +83,50 @@
                     </div>
                 </div>
             </div>
+
+            <!-- Jinja2模板输入区域 -->
+            <div class="form-control w-full jinja2-template-field" style="display: none;">
+                <label class="label" for="{{ form.jinja2_template.id }}">
+                    <span class="label-text">{{ form.jinja2_template.label.text }}
+                </label>
+                {{ form.jinja2_template(class="textarea textarea-bordered w-full h-64 font-mono", placeholder='{# 自定义数据集不填写jinja2模版将无法进行效果评估，但是不影响性能评估 #}
+
+{# 自定义提示词生成 #}
+{% macro gen_prompt(system_prompt, history, user_prompt) %}
+{# 自定义提示词生成逻辑 #}
+{% endmacro %}
+
+{# 自定义标准答案获取 #}
+{% macro get_gold_answer(input_d) %}
+{# 自定义标准答案获取逻辑 #}
+{% endmacro %}
+
+{# 自定义预测结果解析 #}
+{% macro parse_pred_result(result) %}
+{# 自定义预测结果解析逻辑 #}
+{% endmacro %}
+
+{# 自定义结果比较 #}
+{% macro match(gold, pred) %}
+{# 自定义结果比较逻辑 #}
+{% endmacro %}
+
+{# 自定义指标计算 #}
+{% macro compute_metric(review_res_list) %}
+{# 自定义指标计算逻辑 #}
+{% endmacro %}') }}
+                {% if form.jinja2_template.errors %}
+                <label class="label">
+                    <span class="label-text-alt text-error">
+                        {% for error in form.jinja2_template.errors %}{{ error }}<br>{% endfor %}
+                    </span>
+                </label>
+                {% endif %}
+                <label class="label pt-0">
+                    <span class="label-text-alt">模板需要包含以下宏：gen_prompt, get_gold_answer, match, parse_pred_result,
+                        compute_metric</span>
+                </label>
+            </div>
             
             <div class="form-control w-full">
                 <label class="label">
@@ -146,11 +168,6 @@
                         </span>
                     </label>
                 {% endif %}
-                 {% if form.visibility.description %}
-                    <label class="label pt-0">
-                        <span class="label-text-alt">{{ form.visibility.description }}</span>
-                    </label>
-                {% endif %}
             </div>
 
             <div class="card-actions justify-end pt-4">
@@ -181,74 +198,27 @@
 
 <script>
 document.addEventListener('DOMContentLoaded', function() {
-    const formatSelect = document.getElementById('dataset-format');
+    const formatSelect = document.getElementById('format');
+    const jinja2TemplateField = document.querySelector('.jinja2-template-field');
     const qaFormatInfo = document.getElementById('qa-format-info');
     const mcqFormatInfo = document.getElementById('mcq-format-info');
     const fillFormatInfo = document.getElementById('fill-format-info');
-    const benchmarkField = document.getElementById('benchmark-field');
-    const form = document.querySelector('form');
-    const submitBtn = document.getElementById('submit-btn');
-    const fileInput = document.querySelector('input[type="file"]');
-    
-    // 初始显示正确的格式说明和benchmark字段
+
     updateFormatInfo(formatSelect.value);
-    
-    // 监听格式选择变化
-    formatSelect.addEventListener('change', function() {
-        updateFormatInfo(this.value);
-    });
-    
-    // 文件选择验证
-    fileInput.addEventListener('change', function(e) {
-        const file = e.target.files[0];
-        if (file) {
-            const fileSize = file.size;
-            const maxSize = 50 * 1024 * 1024; // 50MB
-            const largeFileThreshold = 10 * 1024 * 1024; // 10MB
-            
-            if (fileSize > maxSize) {
-                alert(`文件过大 (${(fileSize / 1024 / 1024).toFixed(1)}MB)，请上传小于50MB的文件`);
-                e.target.value = '';
-                return;
-            }
-            
-            if (fileSize > largeFileThreshold) {
-                const proceed = confirm(`检测到大文件 (${(fileSize / 1024 / 1024).toFixed(1)}MB)，系统将使用快速验证模式。继续上传？`);
-                if (!proceed) {
-                    e.target.value = '';
-                    return;
-                }
-            }
-        }
-    });
-    
-    // 表单提交处理
-    form.addEventListener('submit', function(e) {
-        const file = fileInput.files[0];
-        if (file) {
-            // 显示上传进度
-            showUploadProgress(file);
-            
-            // 禁用提交按钮，防止重复提交
-            submitBtn.disabled = true;
-            submitBtn.innerHTML = '<span class="loading loading-spinner loading-sm"></span> 处理中...';
-        }
-    });
-    
+
     function updateFormatInfo(format) {
         // 隐藏所有格式说明
         qaFormatInfo.classList.add('hidden');
         mcqFormatInfo.classList.add('hidden');
         fillFormatInfo.classList.add('hidden');
-        
-        // 控制benchmark字段的显示
-        if (format === 'QA' || format === 'MCQ') {
-            // 问答题和选择题隐藏benchmark选择器
-            benchmarkField.style.display = 'none';
+
+        const selectedFormat = formatSelect.value;
+        if (selectedFormat === 'CUSTOM') {
+            jinja2TemplateField.style.display = 'block';
         } else {
-            benchmarkField.style.display = 'block';
+            jinja2TemplateField.style.display = 'none';
         }
-        
+
         // 显示对应的格式说明
         if (format === 'QA') {
             qaFormatInfo.classList.remove('hidden');
@@ -259,17 +229,10 @@ document.addEventListener('DOMContentLoaded', function() {
         }
     }
     
-    function showUploadProgress(file) {
-        const modal = document.getElementById('upload-modal');
-        const fileInfo = document.getElementById('file-info');
-        const uploadStatus = document.getElementById('upload-status');
-        
-        if (modal && fileInfo) {
-            fileInfo.textContent = `文件: ${file.name} (${(file.size / 1024 / 1024).toFixed(1)}MB)`;
-            uploadStatus.textContent = '正在上传和验证文件格式...';
-            modal.checked = true;
-        }
-    }
+    formatSelect.addEventListener('change', function () {
+        updateFormatInfo(this.value);
+    });
+    updateFields(); // 初始化时执行一次
 });
 </script>
 {% endblock %} 

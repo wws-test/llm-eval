@@ -146,7 +146,7 @@
                     {% if result.reference_answer %}
                     <div class="my-2">
                         <p class="font-semibold">参考答案:</p>
-                        <div class="p-3 bg-base-300 rounded-lg mt-1 whitespace-pre-wrap break-words">{{ result.reference_answer }}</div>
+                        <div class="p-3 bg-base-300 rounded-lg mt-1 whitespace-pre-wrap break-words">{{ result.reference_answer | trim }}</div>
                     </div>
                     {% endif %}
 

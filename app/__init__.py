@@ -7,9 +7,9 @@ from .config import config
 import datetime
 import logging  # 添加logging模块导入
 import os  # 添加os模块导入
-from app.adapter.custom_intent_adapter import register_genera_intent_benchmark
+from app.adapter.custom_dataset_adapter import register_genera_intent_benchmark
 # 导入数据集插件，确保@register_dataset装饰器能够正确注册
-from app.adapter.custom_intent_dataset_plugin import CustomIntentDatasetPlugin
+from app.adapter.custom_dataset_plugin import CustomDatasetPlugin
 from logging.handlers import RotatingFileHandler
 
 # 修复Flask-Login的redirect导入问题

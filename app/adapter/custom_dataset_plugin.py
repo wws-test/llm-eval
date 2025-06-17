@@ -5,8 +5,8 @@ from evalscope.perf.plugin.datasets.base import DatasetPluginBase
 from evalscope.perf.plugin.registry import register_dataset
 
 
-@register_dataset('custom_intent')
-class CustomIntentDatasetPlugin(DatasetPluginBase):
+@register_dataset('custom_dataset')
+class CustomDatasetPlugin(DatasetPluginBase):
 
     def __init__(self, query_parameters: Arguments):
         super().__init__(query_parameters)
@@ -32,6 +32,8 @@ class CustomIntentDatasetPlugin(DatasetPluginBase):
                         messages.append({'role': 'user', 'content': turn['user']})
                     if 'assistant' in turn:
                         messages.append({'role': 'assistant', 'content': turn['assistant']})
+                    if 'tool' in turn:
+                        messages.append({'role': 'tool', 'content': turn['tool']})
             
             # 添加当前问题
             if question:

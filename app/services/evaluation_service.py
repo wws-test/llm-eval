@@ -177,21 +177,28 @@ class EvaluationService:
                                     dataset_args['general_qa']['subset_list'].append(dataset_name)
                         
                         elif dataset.format == 'CUSTOM':
-                            dataset_names_for_evalscope.append(dataset.benchmark_name)
                             # 获取上传目录的路径
                             dataset_file_path = dataset.download_url
                             dataset_dir = os.path.dirname(dataset_file_path)
                             dataset_name = os.path.splitext(os.path.basename(dataset_file_path))[0]
-                             # 确保有general_qa的dataset_args
-                            if 'general_qa' not in dataset_args:
-                                dataset_args[dataset.benchmark_name] = {
+                            
+                            # 确保有对应的dataset_args
+                            if 'custom_dataset' not in dataset_args:
+                                dataset_args['custom_dataset'] = {
                                     "local_path": dataset_dir,
                                     "subset_list": [dataset_name],
-                                    'filters': {'remove_until': '</think>'} 
+                                    'filters': {'remove_until': '</think>'}
                                 }
+                                
+                                # 如果有自定义模板，添加到dataset_args
+                                if dataset.jinja2_template:
+                                    dataset_args['custom_dataset']['template_content'] = dataset.jinja2_template
                             else:
-                                if dataset_name not in dataset_args[dataset.benchmark_name]['subset_list']:
-                                        dataset_args[dataset.benchmark_name]['subset_list'].append(dataset_name)
+                                if dataset_name not in dataset_args['custom_dataset']['subset_list']:
+                                    dataset_args['custom_dataset']['subset_list'].append(dataset_name)
+                            
+                            # 添加到评估数据集列表
+                            dataset_names_for_evalscope.append('custom_dataset')
                         current_app.logger.info(f"[评估任务 {evaluation_id}] 添加自建数据集 {dataset.name}，格式: {dataset.format}，文件路径: {dataset.download_url}")
                 else:
                     current_app.logger.warning(f"[评估任务 {evaluation_id}] 数据集ID {assoc.dataset_id} 无法找到或名称为空，已跳过。")
@@ -344,7 +351,8 @@ class EvaluationService:
                                             # 自建数据集比较文件名（去掉扩展名后的部分）
                                             if dataset.download_url:
                                                 dataset_filename = os.path.splitext(os.path.basename(dataset.download_url))[0]
-                                                if dataset.benchmark_name+'_'+dataset_filename == filename_stem:
+                                                print(dataset_filename)
+                                                if 'custom_dataset_'+dataset_filename == filename_stem:
                                                     corresponding_dataset = dataset
                                                     break
                                 
@@ -684,7 +692,7 @@ class EvaluationService:
                 # 如果没有dataset关系，回退到格式化逻辑
                 return EvaluationService._format_prompt_from_raw_data(raw_input_data)
             
-            benchmark_name = dataset.benchmark_name
+            benchmark_name = "custom_dataset"
             adapter = EvaluationService._get_adapter_for_dataset(benchmark_name)
             
             if adapter:
