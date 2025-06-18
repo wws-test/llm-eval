@@ -41,8 +41,12 @@ class EvaluationService:
         datasets: List[Dict[str, Any]],
         temperature: float, 
         max_tokens: int,
+        top_k: Optional[int] = None,  # 新增top_k参数
+        top_p: Optional[float] = None,  # 新增top_p参数
         name: Optional[str] = None,
-        limit: Optional[int] = None  # 新增 limit 参数
+        limit: Optional[int] = None,  # 新增 limit 参数
+        judge_worker_num: Optional[int] = None,  # 新增并发数参数
+        eval_batch_size: Optional[int] = None  # 新增评估并发数参数
     ) -> Optional[ModelEvaluation]:
         """
         创建一个新的模型评估任务
@@ -59,6 +63,10 @@ class EvaluationService:
                 name=name,
                 temperature=temperature,
                 max_tokens=max_tokens,
+                top_k=top_k,  # 添加top_k
+                top_p=top_p,  # 添加top_p
+                judge_worker_num=judge_worker_num,  # 添加并发数
+                eval_batch_size=eval_batch_size,  # 添加评估并发数
                 status='pending',
                 limit=limit  # 保存 limit 值
             )
@@ -182,23 +190,23 @@ class EvaluationService:
                             dataset_dir = os.path.dirname(dataset_file_path)
                             dataset_name = os.path.splitext(os.path.basename(dataset_file_path))[0]
                             
-                            # 确保有对应的dataset_args
-                            if 'custom_dataset' not in dataset_args:
-                                dataset_args['custom_dataset'] = {
-                                    "local_path": dataset_dir,
-                                    "subset_list": [dataset_name],
-                                    'filters': {'remove_until': '</think>'}
-                                }
-                                
-                                # 如果有自定义模板，添加到dataset_args
-                                if dataset.jinja2_template:
-                                    dataset_args['custom_dataset']['template_content'] = dataset.jinja2_template
-                            else:
-                                if dataset_name not in dataset_args['custom_dataset']['subset_list']:
-                                    dataset_args['custom_dataset']['subset_list'].append(dataset_name)
+                            # 动态注册自定义数据集基准测试
+                            from app.adapter.custom_dataset_adapter import register_custom_dataset_benchmark
+                            custom_dataset_key = register_custom_dataset_benchmark(dataset.id)
+                            
+                            # 为每个自定义数据集创建单独的配置
+                            dataset_args[custom_dataset_key] = {
+                                "local_path": dataset_dir,
+                                "subset_list": [dataset_name],
+                                'filters': {'remove_until': '</think>'}
+                            }
+                            
+                            # 添加模板内容
+                            if dataset.jinja2_template:
+                                dataset_args[custom_dataset_key]['template_content'] = dataset.jinja2_template
                             
                             # 添加到评估数据集列表
-                            dataset_names_for_evalscope.append('custom_dataset')
+                            dataset_names_for_evalscope.append(custom_dataset_key)
                         current_app.logger.info(f"[评估任务 {evaluation_id}] 添加自建数据集 {dataset.name}，格式: {dataset.format}，文件路径: {dataset.download_url}")
                 else:
                     current_app.logger.warning(f"[评估任务 {evaluation_id}] 数据集ID {assoc.dataset_id} 无法找到或名称为空，已跳过。")
@@ -236,10 +244,17 @@ class EvaluationService:
                     'stream': True, 
                     'timeout': 12000, 
                     'work_dir': base_output_dir,
-                    'eval_batch_size': 4
+                    'generation_config': {
+                        'max_new_tokens': evaluation.max_tokens,
+                        'temperature': evaluation.temperature,
+                        'top_k': evaluation.top_k,
+                        'top_p': evaluation.top_p
+                    },
+                    'eval_batch_size': evaluation.eval_batch_size or 4  # 使用评估并发数
                 }
                 if judge_model_identifier:
                     task_cfg_args['judge_strategy'] = JudgeStrategy.AUTO
+                    task_cfg_args['judge_worker_num'] = evaluation.judge_worker_num
                     task_cfg_args['judge_model_args'] = {
                         'model_id': judge_model_identifier,
                         'api_url': judge_api_url if judge_api_url else '',
@@ -247,9 +262,6 @@ class EvaluationService:
                         'generation_config': {
                             # 'stream': True,
                             'timeout': 12000,
-                            'temperature': evaluation.temperature or '0.7',
-                            'top_k': 20,
-                            'top_p': 0.8
                         }
                     }
                 
@@ -352,7 +364,7 @@ class EvaluationService:
                                             if dataset.download_url:
                                                 dataset_filename = os.path.splitext(os.path.basename(dataset.download_url))[0]
                                                 print(dataset_filename)
-                                                if 'custom_dataset_'+dataset_filename == filename_stem:
+                                                if f'custom_dataset_{dataset.id}_{dataset_filename}' == filename_stem:
                                                     corresponding_dataset = dataset
                                                     break
                                 
@@ -666,7 +678,7 @@ class EvaluationService:
             return file_data
             
         except Exception as e:
-            current_app.logger.error(f"导出Excel失败: {str(e)}")
+            current_app.logger.error(f"导出Excel失败: {str(e)}", exc_info=True)
             return None 
 
     @staticmethod
@@ -692,12 +704,11 @@ class EvaluationService:
                 # 如果没有dataset关系，回退到格式化逻辑
                 return EvaluationService._format_prompt_from_raw_data(raw_input_data)
             
-            benchmark_name = "custom_dataset"
-            adapter = EvaluationService._get_adapter_for_dataset(benchmark_name)
-            
+            benchmark_name = f'custom_dataset_{dataset.id}' if dataset.format.lower() == 'custom' else dataset.name
+            adapter = EvaluationService.get_adapter_for_dataset(dataset.id)
             if adapter:
                 try:
-                    # 调用adapter的gen_prompt方法
+                    # 调用adapter的gen_prompt方法，传递正确的参数
                     prompt_data = adapter.gen_prompt(raw_input_data, benchmark_name, []) 
                     # 提取prompt字段
                     if isinstance(prompt_data, dict):
@@ -722,7 +733,7 @@ class EvaluationService:
             return EvaluationService._format_prompt_from_raw_data(raw_input_data)
                 
         except Exception as e:
-            current_app.logger.error(f"解析结果userPrompt时出错: {str(e)}")
+            current_app.logger.error(f"解析结果userPrompt时出错: {str(e)}", exc_info=True)
             return "解析错误"
 
     @staticmethod
@@ -732,7 +743,7 @@ class EvaluationService:
             formatted_parts = []
             
             # 处理历史对话
-            history = raw_input_data.get('history') or raw_input_data.get('hisotory', [])
+            history = raw_input_data.get('history') or raw_input_data.get('history', [])
             if history and isinstance(history, list):
                 for turn_idx, turn in enumerate(history):
                     if isinstance(turn, dict):
@@ -819,19 +830,29 @@ class EvaluationService:
             return ""
 
     @staticmethod
-    def _get_adapter_for_dataset(dataset_name: str):
+    def get_adapter_for_dataset(dataset_id: int):
         """根据数据集名称获取对应的adapter实例"""
         try:
+            dataset = Dataset.query.get(dataset_id)
+            if not dataset:
+                return None
+            dataset_name = f'custom_dataset_{dataset.id}' if dataset.format.lower() == 'custom' else dataset.name
             # 导入BENCHMARK_MAPPINGS
             from evalscope.benchmarks.benchmark import BENCHMARK_MAPPINGS
-            
+            # 动态注册自定义数据集基准测试[重启后内存数据会丢失，所以动态注册下]
+            from app.adapter.custom_dataset_adapter import register_custom_dataset_benchmark
+            register_custom_dataset_benchmark(dataset.id)
+
             # 统一通过BENCHMARK_MAPPINGS获取adapter
             if dataset_name in BENCHMARK_MAPPINGS:
                 benchmark_meta = BENCHMARK_MAPPINGS[dataset_name]
                 adapter_class = benchmark_meta.data_adapter
-                return adapter_class(**benchmark_meta.to_dict())
+                if dataset.format.lower() == 'custom':
+                    return adapter_class(**benchmark_meta.to_dict(), template_content=dataset.jinja2_template)
+                else:
+                    return adapter_class(**benchmark_meta.to_dict())
             return None
             
         except Exception as e:
-            current_app.logger.error(f"获取数据集 {dataset_name} 的adapter失败: {str(e)}")
+            current_app.logger.error(f"获取数据集 {dataset_id} 的adapter失败: {str(e)}")
             return None 

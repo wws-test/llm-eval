@@ -140,23 +140,27 @@ class CustomDatasetAdapter(DataAdapter):
         except Exception as e:
             raise ValueError(f"加载模板 {template_name} 失败：{str(e)}")
 
-# 动态注册基准测试  
-def register_genera_intent_benchmark():  
-    benchmark_name = f'custom_dataset'  
-      
-    # 创建BenchmarkMeta实例  
-    benchmark_meta = BenchmarkMeta(  
-        name=benchmark_name,  
-        dataset_id=benchmark_name,  
-        data_adapter=CustomDatasetAdapter,  
-        model_adapter=OutputType.GENERATION,  
-        subset_list=['default'],  
-        metric_list=['AverageAccuracy'],  
-        few_shot_num=0,  
+def register_custom_dataset_benchmark(dataset_id: int):
+    """动态注册自定义数据集基准测试
+    
+    Args:
+        dataset_name: 数据集名称，用于生成唯一的基准测试名称
+    """
+    benchmark_name = f'custom_dataset_{dataset_id}'
+    
+    # 创建BenchmarkMeta实例
+    benchmark_meta = BenchmarkMeta(
+        name=benchmark_name,
+        dataset_id=benchmark_name,
+        data_adapter=CustomDatasetAdapter,
+        model_adapter=OutputType.GENERATION,
+        subset_list=['default'],
+        metric_list=['AverageAccuracy'],
+        few_shot_num=0,
         eval_split='test'
-    )  
-      
-    # 直接添加到全局注册表  
-    BENCHMARK_MAPPINGS[benchmark_name] = benchmark_meta  
-      
+    )
+    
+    # 直接添加到全局注册表
+    BENCHMARK_MAPPINGS[benchmark_name] = benchmark_meta
+    
     return benchmark_name

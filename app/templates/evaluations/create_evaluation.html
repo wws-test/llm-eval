@@ -115,8 +115,44 @@
                             <option value="8192">8192</option>
                         </select>
                     </div>
+                    
+                    <!-- Top-K -->
+                    <div class="form-control">
+                        <label class="label">
+                            <span class="label-text">top_k</span>
+                            <span class="label-text-alt text-info" title="控制生成时考虑的词汇数量">
+                                <i class="fas fa-info-circle"></i>
+                            </span>
+                        </label>
+                        <input type="number" name="top_k" value="20" min="1" max="100" class="input input-bordered" />
+                        <label class="label">
+                            <span class="label-text-alt">控制生成时考虑的词汇数量，值越小生成越保守</span>
+                        </label>
+                    </div>
+                    
+                    <!-- Top-P -->
+                    <div class="form-control">
+                        <label class="label">
+                            <span class="label-text">top_p</span>
+                            <span class="label-text-alt text-info" title="控制生成时考虑的词汇概率累积">
+                                <i class="fas fa-info-circle"></i>
+                            </span>
+                        </label>
+                        <input type="number" name="top_p" value="0.8" min="0" max="1" step="0.1" class="input input-bordered" />
+                        <label class="label">
+                            <span class="label-text-alt">控制生成时考虑的词汇概率累积，值越小生成越保守</span>
+                        </label>
+                    </div>
                 </div>
+                
+                <div class="divider"></div>
+                
+                <h3 class="text-lg font-semibold mb-2">
+                    <i class="fas fa-cogs mr-2"></i> 并发设置
+                </h3>
+                
                 <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <!-- 限制评估数量 -->
                     <div class="form-control w-full">
                         <label class="label">
                             <span class="label-text">限制评估数量 (每个数据集子集)</span>
@@ -124,6 +160,34 @@
                         <input type="number" name="limit" placeholder="例如: 10 (留空或0表示不限制或默认)" class="input input-bordered w-full" min="0" />
                         <label class="label">
                             <span class="label-text-alt">填写一个数字，例如10。如果留空，将是数据集全量参与评估。</span>
+                        </label>
+                    </div>
+                    
+                    <!-- 评估并发数 -->
+                    <div class="form-control">
+                        <label class="label">
+                            <span class="label-text">生成评估并发数</span>
+                            <span class="label-text-alt text-info" title="同时处理的评估任务数量">
+                                <i class="fas fa-info-circle"></i>
+                            </span>
+                        </label>
+                        <input type="number" name="eval_batch_size" value="5" min="1" max="20" class="input input-bordered" />
+                        <label class="label">
+                            <span class="label-text-alt">同时处理的评估任务数量，影响评估速度</span>
+                        </label>
+                    </div>
+                    
+                    <!-- 生成并发数 -->
+                    <div class="form-control">
+                        <label class="label">
+                            <span class="label-text">裁判评估并发数</span>
+                            <span class="label-text-alt text-info" title="裁判模型的并发工作线程数">
+                                <i class="fas fa-info-circle"></i>
+                            </span>
+                        </label>
+                        <input type="number" name="judge_worker_num" value="5" min="1" max="100" class="input input-bordered" />
+                        <label class="label">
+                            <span class="label-text-alt">裁判模型的并发工作线程数，影响评估速度</span>
                         </label>
                     </div>
                 </div>
@@ -141,14 +205,13 @@
                     <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                         {% for dataset in datasets %}
                             <div class="card bg-base-200 dataset-card hover:bg-base-300 cursor-pointer transition-all"
-                                 onclick="toggleDatasetSelection(this, {{ dataset.id }})">
+                                 onclick="handleCardClick(event, this, {{ dataset.id }})">
                                 <div class="card-body p-4">
                                     <div class="flex justify-between">
                                         <h3 class="font-semibold">{{ dataset.name }}</h3>
                                         <div class="form-control">
                                             <label class="cursor-pointer label py-0">
-                                                <input type="checkbox" name="dataset_{{ dataset.id }}" class="checkbox checkbox-primary checkbox-sm dataset-checkbox" 
-                                                       onchange="event.stopPropagation(); updateDatasetSelection(this, {{ dataset.id }})" />
+                                                <input type="checkbox" name="dataset_{{ dataset.id }}" class="checkbox checkbox-primary checkbox-sm dataset-checkbox" />
                                             </label>
                                         </div>
                                     </div>
@@ -178,21 +241,37 @@
 {% block scripts %}
 {{ super() }}
 <script>
-    // 切换数据集选择状态
-    function toggleDatasetSelection(cardElement, datasetId) {
+    // 处理卡片点击事件
+    function handleCardClick(event, cardElement, datasetId) {
+        // 如果点击的是复选框或其标签，不处理
+        if (event.target.type === 'checkbox' || event.target.closest('label')) {
+            return;
+        }
+        
+        // 否则切换复选框状态
         const checkbox = cardElement.querySelector('.dataset-checkbox');
         checkbox.checked = !checkbox.checked;
-        updateDatasetSelection(checkbox, datasetId);
+        updateCardStyle(cardElement, checkbox.checked);
     }
     
-    // 更新数据集选择状态
-    function updateDatasetSelection(checkbox, datasetId) {
-        const card = checkbox.closest('.dataset-card');
-        if (checkbox.checked) {
-            card.classList.add('selected');
+    // 更新卡片样式
+    function updateCardStyle(cardElement, isSelected) {
+        if (isSelected) {
+            cardElement.classList.add('selected');
         } else {
-            card.classList.remove('selected');
+            cardElement.classList.remove('selected');
         }
     }
+    
+    // 监听复选框变化事件
+    document.addEventListener('DOMContentLoaded', function() {
+        const checkboxes = document.querySelectorAll('.dataset-checkbox');
+        checkboxes.forEach(function(checkbox) {
+            checkbox.addEventListener('change', function() {
+                const card = this.closest('.dataset-card');
+                updateCardStyle(card, this.checked);
+            });
+        });
+    });
 </script>
 {% endblock %} 

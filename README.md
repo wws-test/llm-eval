@@ -175,7 +175,7 @@ python run.py --debug
 {# 1. 配置 #}
 {% macro get_config() %}
 {
-    "llm_as_a_judge": true  {# 使用LLM作为裁判 #}
+    "llm_as_a_judge": false  {# 是否使用LLM作为裁判 #}
 }
 {% endmacro %}
 

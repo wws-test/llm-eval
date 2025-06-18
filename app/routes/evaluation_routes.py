@@ -73,7 +73,7 @@ def create_evaluation():
                     Dataset.source == '系统'
                 )
             )
-        ).order_by(Dataset.name).all()
+        ).order_by(Dataset.id.desc()).all()
         
         return render_template(
             'evaluations/create_evaluation.html',
@@ -91,6 +91,10 @@ def create_evaluation():
             judge_model_id = request.form.get('judge_model_id', type=int, default=None)
             temperature = request.form.get('temperature', type=float, default=0.7)
             max_tokens = request.form.get('max_tokens', type=int, default=2048)
+            top_k = request.form.get('top_k', type=int, default=20)  # 新增top_k
+            top_p = request.form.get('top_p', type=float, default=0.8)  # 新增top_p
+            judge_worker_num = request.form.get('judge_worker_num', type=int, default=1)  # 新增并发数
+            eval_batch_size = request.form.get('eval_batch_size', type=int, default=4)  # 新增评估并发数
             evaluation_name = request.form.get('evaluation_name', '')
             limit = request.form.get('limit', type=int, default=None)
             
@@ -127,6 +131,12 @@ def create_evaluation():
                     return redirect(url_for('evaluations.create_evaluation'))
                 datasets_data.append({'dataset_id': ds_id}) # 只传递 dataset_id
             
+                # 判断选择的数据集是否需要裁判模型
+                use_llm = EvaluationService.get_adapter_for_dataset(dataset.id).llm_as_a_judge
+                if use_llm and not judge_model:
+                    flash(f'选择的数据集{dataset.name}需要裁判模型，请选择裁判模型。', 'error')
+                    return redirect(url_for('evaluations.create_evaluation'))
+
             # 创建评估任务
             evaluation = EvaluationService.create_evaluation(
                 user_id=current_user.id,
@@ -135,6 +145,10 @@ def create_evaluation():
                 datasets=datasets_data, # 传递简化的数据集信息
                 temperature=temperature,
                 max_tokens=max_tokens,
+                top_k=top_k,
+                top_p=top_p,
+                judge_worker_num=judge_worker_num,  # 传递并发数
+                eval_batch_size=eval_batch_size,
                 name=evaluation_name,
                 limit=limit
             )
@@ -334,11 +348,11 @@ def export_to_excel(evaluation_id):
             flash('没有找到符合条件的评估结果。', 'warning')
             return redirect(url_for('evaluations.view_detailed_results', evaluation_id=evaluation_id))
         
-        # 生成文件名
+        # 生成安全的文件名，只使用ASCII字符
         timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-        filename = f"{evaluation.name}_{timestamp}.xlsx"
+        filename = f"evaluation_{evaluation_id}_{timestamp}.xlsx"
         
-        # 创建响应
+        # 创建响应，使用ASCII编码的文件名
         response = make_response(excel_data)
         response.headers['Content-Disposition'] = f'attachment; filename="{filename}"'
         response.headers['Content-Type'] = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'

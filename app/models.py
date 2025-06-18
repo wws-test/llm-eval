@@ -152,6 +152,10 @@ class ModelEvaluation(db.Model):
     name = db.Column(db.String(150), nullable=True)
     temperature = db.Column(db.Float, nullable=False, default=0.7)
     max_tokens = db.Column(db.Integer, nullable=False, default=2048)
+    top_k = db.Column(db.Integer, nullable=True, default=20)  # 新增top_k字段
+    top_p = db.Column(db.Float, nullable=True, default=0.8)  # 新增top_p字段
+    judge_worker_num = db.Column(db.Integer, nullable=True, default=1)  # 新增并发数字段
+    eval_batch_size = db.Column(db.Integer, nullable=True, default=4)  # 新增评估并发数字段
     status = db.Column(db.String(20), nullable=False, default='pending')
     created_at = db.Column(db.DateTime, default=get_beijing_time)
     completed_at = db.Column(db.DateTime, nullable=True)

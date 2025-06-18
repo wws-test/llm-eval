@@ -48,6 +48,11 @@
                 <div>
                     <p class="font-semibold">生成参数</p>
                     <p>温度: {{ evaluation.temperature }}, 最大Token: {{ evaluation.max_tokens }}</p>
+                    <p>Top-K: {{ evaluation.top_k or 20 }}, Top-P: {{ evaluation.top_p or 0.8 }}</p>
+                </div>
+                <div>
+                    <p class="font-semibold">并发设置</p>
+                    <p>评估并发数: {{ evaluation.eval_batch_size or 4 }}, 生成并发数: {{ evaluation.judge_worker_num or 1 }}</p>
                 </div>
                 <div>
                     <p class="font-semibold">创建时间</p>
@@ -349,7 +354,9 @@
             var a = document.createElement('a');
             a.style.display = 'none';
             a.href = url;
-            a.download = '{{ evaluation.name }}_评估结果_' + new Date().toISOString().slice(0,19).replace(/:/g, '-') + '.xlsx';
+            // 使用简单的文件名
+            var timestamp = new Date().toISOString().slice(0,19).replace(/:/g, '-');
+            a.download = 'evaluation_results_' + timestamp + '.xlsx';
             
             document.body.appendChild(a);
             a.click();

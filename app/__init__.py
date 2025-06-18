@@ -7,7 +7,6 @@ from .config import config
 import datetime
 import logging  # 添加logging模块导入
 import os  # 添加os模块导入
-from app.adapter.custom_dataset_adapter import register_genera_intent_benchmark
 # 导入数据集插件，确保@register_dataset装饰器能够正确注册
 from app.adapter.custom_dataset_plugin import CustomDatasetPlugin
 from logging.handlers import RotatingFileHandler
@@ -218,8 +217,6 @@ def create_app(config_name=None):
     # 注册性能评估蓝图
     from app.routes.perf_eval_routes import perf_eval_bp
     app.register_blueprint(perf_eval_bp)
-
-    register_genera_intent_benchmark()
 
     # 错误处理器，需要正确缩进到create_app函数内部
     @app.errorhandler(400)

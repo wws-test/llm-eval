@@ -9,8 +9,8 @@ python-dotenv
 PyMySQL
 openai
 modelscope
-evalscope
-evalscope[perf]
+evalscope==0.16.1
+evalscope[perf]==0.16.1
 pandas
 numpy
 openpyxl
@@ -25,4 +25,6 @@ blinker
 Pillow
 simplejson
 tiktoken
-omegaconf
+omegaconf==2.3.0
+antlr4-python3-runtime==4.9.3
+latex2sympy2_extended==1.10.1

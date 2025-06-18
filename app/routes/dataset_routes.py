@@ -66,7 +66,7 @@ def datasets_list():
     if selected_category_name != '全部' and selected_category_name:
         query = query.join(Dataset.categories).filter(DatasetCategory.name == selected_category_name)
         
-    datasets_from_db = query.order_by(Dataset.name).all()
+    datasets_from_db = query.order_by(Dataset.id.desc()).all()
     
     return render_template(
         'datasets/datasets.html', 
