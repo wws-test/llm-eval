@@ -52,7 +52,7 @@
                 </div>
                 <div>
                     <p class="font-semibold">并发设置</p>
-                    <p>评估并发数: {{ evaluation.eval_batch_size or 4 }}, 生成并发数: {{ evaluation.judge_worker_num or 1 }}</p>
+                    <p>生成并发数: {{ evaluation.eval_batch_size or 4 }}, 裁判评估并发数: {{ evaluation.judge_worker_num or 1 }}</p>
                 </div>
                 <div>
                     <p class="font-semibold">创建时间</p>

@@ -17,7 +17,7 @@ def run_command(cmd, description):
 def main():
     """主启动函数"""
     print("=== Docker容器启动 ===")
-    
+
     # 初始化数据库
     run_command("python /app/init_database.py", "初始化数据库")
     

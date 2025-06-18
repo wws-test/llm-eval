@@ -121,8 +121,7 @@ def add_custom_dataset():
                 if file and file.filename:
                     # 确保文件名安全
                     filename = secure_filename(file.filename)
-                    # 创建用户特定的上传目录
-                    upload_dir = os.path.join(current_app.config['DATA_UPLOADS_DIR'], current_user.username)
+                    upload_dir = current_app.config['DATA_UPLOADS_DIR']
                     os.makedirs(upload_dir, exist_ok=True)
                     
                     # 生成新的文件名（添加时间戳以避免重名）
@@ -153,7 +152,7 @@ def add_custom_dataset():
                             return render_template('datasets/add_custom_dataset.html', title='添加自定义数据集', form=form)
                         
                         # 创建数据集结构信息
-                        subset_name = os.path.splitext(new_filename)[0]
+                        subset_name = 'default'
                         dataset_info_data = {
                             subset_name: {
                                 "features": {

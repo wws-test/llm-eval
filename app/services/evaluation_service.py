@@ -18,6 +18,9 @@ import os
 import json
 import pandas as pd
 
+# 导入配置函数
+from app.config import get_outputs_dir
+
 # 辅助函数，尝试将evalscope的Report对象转换为可序列化的字典
 def serialize_evalscope_report(report_obj):
     if hasattr(report_obj, 'to_dict') and callable(report_obj.to_dict):
@@ -222,7 +225,7 @@ class EvaluationService:
                 return
 
             evalscope_run_timestamp = get_beijing_time().strftime('%Y%m%d_%H%M%S')
-            base_output_dir = os.path.join('.', 'outputs', f'eval_{evaluation_id}_{evalscope_run_timestamp}') 
+            base_output_dir = os.path.join(get_outputs_dir(), f'eval_{evaluation_id}_{evalscope_run_timestamp}') 
             try:
                 os.makedirs(base_output_dir, exist_ok=True)
             except Exception as e:
@@ -893,7 +896,8 @@ class EvaluationService:
             
             # 获取评估输出目录
             evalscope_run_timestamp = evaluation.created_at.strftime('%Y%m%d_%H%M%S')
-            base_output_dir = os.path.join('.', 'outputs', f'eval_{evaluation_id}_{evalscope_run_timestamp}')
+            base_output_dir = os.path.join(get_outputs_dir(), f'eval_{evaluation_id}_{evalscope_run_timestamp}')
+            current_app.logger.info(f"++++base_output_dir: {base_output_dir}")
             # 检查输出目录是否存在
             if not os.path.exists(base_output_dir):
                 return {
@@ -916,7 +920,7 @@ class EvaluationService:
 
             t_model_identifier = model.model_identifier.split('/')[-1]
             reviews_base_path = os.path.join(t_base_output_dir, OUTPUTS_STRUCTURE_REVIEWS_DIR, t_model_identifier)
-            
+            current_app.logger.info(f"reviews_base_path: {reviews_base_path}")
             # 计算已完成的prompt数量（通过reviews目录中的json文件）
             completed_prompts = EvaluationService._calculate_completed_prompts(reviews_base_path)
             

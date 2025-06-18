@@ -14,6 +14,36 @@ def get_database_uri():
     
     return f"mysql+pymysql://{db_user}:{db_password}@{db_host}:{db_port}/{db_name}"
 
+def get_uploads_dir():
+    """动态获取上传目录路径，支持Docker容器环境"""
+    # 检查是否在Docker容器中运行
+    if os.path.exists('/app') and os.environ.get('FLASK_ENV') == 'production':
+        # Docker容器环境：使用容器内的绝对路径
+        return '/app/uploads'
+    else:
+        # 非容器环境：使用环境变量或默认路径
+        env_path = os.environ.get('DATA_UPLOADS_DIR')
+        if env_path:
+            return env_path
+        else:
+            # 默认路径
+            return os.path.join(os.getcwd(), 'data', 'uploads')
+
+def get_outputs_dir():
+    """动态获取输出目录路径，支持Docker容器环境"""
+    # 检查是否在Docker容器中运行
+    if os.path.exists('/app') and os.environ.get('FLASK_ENV') == 'production':
+        # Docker容器环境：使用容器内的绝对路径
+        return '/app/outputs'
+    else:
+        # 非容器环境：使用环境变量或默认路径
+        env_path = os.environ.get('DATA_OUTPUTS_DIR')
+        if env_path:
+            return env_path
+        else:
+            # 默认路径
+            return os.path.join(os.getcwd(), 'data', 'outputs')
+
 class Config:
     SECRET_KEY = os.environ.get('SECRET_KEY') or 'a-default-fallback-secret-key'
     
@@ -26,8 +56,10 @@ class Config:
 
     SYSTEM_PROVIDER_API_KEY = os.environ.get('SYSTEM_PROVIDER_API_KEY')
     SYSTEM_PROVIDER_BASE_URL = os.environ.get('SYSTEM_PROVIDER_BASE_URL')
-    # 文件上传配置
-    DATA_UPLOADS_DIR = os.environ.get('DATA_UPLOADS_DIR')
+    
+    # 文件上传配置 - 使用动态路径获取
+    DATA_UPLOADS_DIR = get_uploads_dir()
+    DATA_OUTPUTS_DIR = get_outputs_dir()
     
     # 文件大小限制配置
     DATASET_MAX_FILE_SIZE = int(os.environ.get('DATASET_MAX_FILE_SIZE', 50 * 1024 * 1024))  # 50MB

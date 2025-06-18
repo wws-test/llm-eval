@@ -137,6 +137,7 @@ def create_evaluation():
                     flash(f'选择的数据集{dataset.name}需要裁判模型，请选择裁判模型。', 'error')
                     return redirect(url_for('evaluations.create_evaluation'))
 
+            # TODO 如果数据集中需要jinja2模板但是没配置需要提醒
             # 创建评估任务
             evaluation = EvaluationService.create_evaluation(
                 user_id=current_user.id,

@@ -212,13 +212,27 @@ class DatasetService:
             Tuple[List[Dict], int]: 数据列表和总数据条数
         """
         try:
+            # 获取缓存目录，确保在Docker容器中正确工作
+            cache_dir = current_app.config.get('DATA_UPLOADS_DIR')
+            if not cache_dir:
+                # 如果配置中没有设置，使用默认路径
+                if os.path.exists('/app') and os.environ.get('FLASK_ENV') == 'production':
+                    # Docker容器环境
+                    cache_dir = '/app/uploads'
+                else:
+                    # 非容器环境
+                    cache_dir = os.path.join(current_app.root_path, 'uploads')
+            
+            # 确保缓存目录存在
+            os.makedirs(cache_dir, exist_ok=True)
+            
             # 加载数据集
             dataset = MsDataset.load(
                 dataset_name, 
                 subset_name=subset,
                 split=split,
                 namespace='modelscope',
-                cache_dir=current_app.config.get('DATA_UPLOADS_DIR', os.path.join(current_app.root_path, 'uploads'))
+                cache_dir=cache_dir
             )
             
             # 计算总数据量
