@@ -9,8 +9,8 @@ python-dotenv
 PyMySQL
 openai
 modelscope
-evalscope==0.16.1
-evalscope[perf]==0.16.1
+evalscope
+evalscope[perf]
 pandas
 numpy
 openpyxl
