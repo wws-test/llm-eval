@@ -303,7 +303,6 @@ def list_dataset_data(dataset_id):
     end_page = min(total_pages + 1, page + 3) if total_pages > 0 else 1
     page_range = list(range(start_page, end_page))
     
-    print(f'field_order: {list(data[0].keys()) if data else []}')
     return jsonify({
         'data': data,
         'field_order': list(data[0].keys()) if data else [],  # 添加字段顺序信息

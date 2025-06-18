@@ -11,7 +11,7 @@ from flask import current_app
 import threading
 from app.services.model_service import get_decrypted_api_key
 from app.utils import get_beijing_time
-
+from collections import OrderedDict, defaultdict
 from evalscope.run import run_task
 from evalscope.constants import JudgeStrategy
 import os
@@ -29,6 +29,9 @@ def serialize_evalscope_report(report_obj):
 
 # 定义evalscope输出结构中review目录的名称
 OUTPUTS_STRUCTURE_REVIEWS_DIR = 'reviews'
+
+# 简单的缓存机制，存储评估任务的total_prompts
+_evaluation_total_prompts_cache = {}
 
 class EvaluationService:
     """模型评估服务，处理评估相关的业务逻辑"""
@@ -319,7 +322,7 @@ class EvaluationService:
                 eval_successful = True
 
                 if isinstance(raw_report_from_evalscope, dict):
-                    for ds_name_key, report_obj in raw_report_from_evalscope.items(): # ds_name_key可能包含子集信息, e.g., "cvalues/positive"
+                    for ds_name_key, report_obj in raw_report_from_evalscope.items():
                         evalscope_final_report[ds_name_key] = serialize_evalscope_report(report_obj)
                     current_app.logger.info(f"[评估任务 {evaluation_id}] Evalscope report processed and serialized.")
                 else:
@@ -363,7 +366,6 @@ class EvaluationService:
                                             # 自建数据集比较文件名（去掉扩展名后的部分）
                                             if dataset.download_url:
                                                 dataset_filename = os.path.splitext(os.path.basename(dataset.download_url))[0]
-                                                print(dataset_filename)
                                                 if f'custom_dataset_{dataset.id}_{dataset_filename}' == filename_stem:
                                                     corresponding_dataset = dataset
                                                     break
@@ -472,13 +474,18 @@ class EvaluationService:
                 evaluation.completed_at = get_beijing_time()
                 db.session.commit() # 提交所有更改，包括状态、摘要和详细结果
                 current_app.logger.info(f"[评估任务 {evaluation_id}] 评估任务处理完毕，状态: {evaluation.status}。Summary: {json.dumps(evalscope_final_report, indent=2)}")
-
+                
+                # 清理评估缓存
+                EvaluationService._clear_evaluation_cache(evaluation_id)
 
             except Exception as es_exc:
                 current_app.logger.error(f"[评估任务 {evaluation_id}] Error during evalscope execution or result processing: {str(es_exc)}", exc_info=True)
                 evaluation.status = 'failed'
                 evaluation.result_summary = {"error": f"Evalscope execution/processing failed: {str(es_exc)}"}
                 db.session.commit() # 确保即使发生异常也提交状态
+                
+                # 清理评估缓存
+                EvaluationService._clear_evaluation_cache(evaluation_id)
             
             finally:
                 if os.path.isdir(base_output_dir):
@@ -856,3 +863,159 @@ class EvaluationService:
         except Exception as e:
             current_app.logger.error(f"获取数据集 {dataset_id} 的adapter失败: {str(e)}")
             return None 
+
+    @staticmethod
+    def get_evaluation_progress(evaluation_id: int, user_id: int) -> Dict[str, Any]:
+        """
+        获取评估任务的进度信息
+        
+        Args:
+            evaluation_id: 评估ID
+            user_id: 用户ID
+            
+        Returns:
+            Dict包含进度信息：total_prompts, completed_prompts, progress_percentage, status
+        """
+        try:
+            # 验证权限
+            evaluation = ModelEvaluation.query.get(evaluation_id)
+            if not evaluation or evaluation.user_id != user_id:
+                return {"error": "评估不存在或您无权访问"}
+            
+            # 如果评估已完成或失败，直接返回状态
+            if evaluation.status in ['completed', 'failed']:
+                return {
+                    "status": evaluation.status,
+                    "total_prompts": 0,
+                    "completed_prompts": 0,
+                    "progress_percentage": 100.0 if evaluation.status == 'completed' else 0.0
+                }
+            
+            # 获取评估输出目录
+            evalscope_run_timestamp = evaluation.created_at.strftime('%Y%m%d_%H%M%S')
+            base_output_dir = os.path.join('.', 'outputs', f'eval_{evaluation_id}_{evalscope_run_timestamp}')
+            # 检查输出目录是否存在
+            if not os.path.exists(base_output_dir):
+                return {
+                    "status": evaluation.status,
+                    "total_prompts": 0,
+                    "completed_prompts": 0,
+                    "progress_percentage": 0.0
+                }
+            
+            # 获取模型标识符
+            model = AIModel.query.get(evaluation.model_id)
+            if not model:
+                return {"error": "被评估模型不存在"}
+            
+            if not os.path.isabs(base_output_dir):
+                base_output_dir = os.path.abspath(base_output_dir)
+            t_base_output_dir = base_output_dir
+            for k in os.listdir(base_output_dir):
+                t_base_output_dir = os.path.join(base_output_dir, k)
+
+            t_model_identifier = model.model_identifier.split('/')[-1]
+            reviews_base_path = os.path.join(t_base_output_dir, OUTPUTS_STRUCTURE_REVIEWS_DIR, t_model_identifier)
+            
+            # 计算已完成的prompt数量（通过reviews目录中的json文件）
+            completed_prompts = EvaluationService._calculate_completed_prompts(reviews_base_path)
+            
+            # 检查是否需要计算total_prompts（只在首次或completed_prompts为0时计算）
+            total_prompts = 0
+            progress_percentage = 0.0
+            
+            # 检查缓存中是否已有total_prompts
+            if evaluation_id in _evaluation_total_prompts_cache:
+                total_prompts = _evaluation_total_prompts_cache[evaluation_id]
+            else:
+                # 如果缓存中没有，则计算并缓存
+                total_prompts = EvaluationService._calculate_total_prompts(evaluation_id)
+                _evaluation_total_prompts_cache[evaluation_id] = total_prompts
+            
+            # 计算进度百分比
+            if total_prompts > 0:
+                progress_percentage = min(100.0, (completed_prompts / total_prompts) * 100.0)
+            
+            return {
+                "status": evaluation.status,
+                "total_prompts": total_prompts,
+                "completed_prompts": completed_prompts,
+                "progress_percentage": round(progress_percentage, 2)
+            }
+            
+        except Exception as e:
+            current_app.logger.error(f"获取评估进度失败: {str(e)}")
+            return {"error": f"获取进度失败: {str(e)}"}
+    
+    @staticmethod
+    def _calculate_total_prompts(evaluation_id: int) -> int:
+        """
+        计算评估任务的总prompt数量，通过data_adapter.load加载数据集
+        """
+        try:
+            total_prompts = 0
+            
+            # 获取评估记录
+            evaluation = ModelEvaluation.query.get(evaluation_id)
+            if not evaluation:
+                return 0
+            # 获取评估关联的数据集
+            eval_dataset_associations = ModelEvaluationDataset.query.filter_by(evaluation_id=evaluation_id).all()
+            
+            for assoc in eval_dataset_associations:
+                dataset = Dataset.query.get(assoc.dataset_id)
+                adapter = EvaluationService.get_adapter_for_dataset(dataset.id)
+                data_dict = adapter.load(dataset_name_or_path=dataset.download_url)
+                prompts = adapter.gen_prompts(data_dict=data_dict)
+
+                limited_prompts = defaultdict(list)
+                for subset_name, prompts_list in prompts.items():
+                    limit = evaluation.limit or len(prompts_list)
+                    for index, prompt in enumerate(prompts_list[:limit]):
+                        limited_prompts[subset_name].append(prompt)
+                    total_prompts += len(limited_prompts[subset_name])
+            return total_prompts
+            
+        except Exception as e:
+            current_app.logger.error(f"计算总prompt数量失败: {str(e)}")
+            return 0
+
+    @staticmethod
+    def _calculate_completed_prompts(reviews_base_path: str) -> int:
+        """
+        计算已完成的prompt数量（通过reviews目录中的json文件）
+        """
+        try:
+            if not os.path.exists(reviews_base_path):
+                return 0
+            
+            completed_count = 0
+            
+            # 遍历reviews目录中的所有jsonl文件
+            for review_filename in os.listdir(reviews_base_path):
+                review_file_path = os.path.join(reviews_base_path, review_filename)
+                if os.path.isfile(review_file_path) and review_filename.endswith('.jsonl'):
+                    try:
+                        # 计算文件中的行数（每个行代表一个完成的prompt）
+                        with open(review_file_path, 'r', encoding='utf-8') as f:
+                            file_count = sum(1 for line in f if line.strip())
+                            completed_count += file_count
+                    except Exception as e:
+                        current_app.logger.warning(f"读取review文件失败 {review_file_path}: {str(e)}")
+                        continue
+            
+            return completed_count
+            
+        except Exception as e:
+            current_app.logger.error(f"计算已完成prompt数量失败: {str(e)}")
+            return 0 
+
+    @staticmethod
+    def _clear_evaluation_cache(evaluation_id: int) -> None:
+        """
+        清理评估任务的缓存
+        """
+        global _evaluation_total_prompts_cache
+        if evaluation_id in _evaluation_total_prompts_cache:
+            del _evaluation_total_prompts_cache[evaluation_id]
+            current_app.logger.debug(f"[评估任务 {evaluation_id}] 已清理缓存") 

@@ -5,7 +5,6 @@ from typing import List, Dict, Tuple
 
 # 导入ModelScope的SDK
 from modelscope import MsDataset
-from evalscope.benchmarks.benchmark import BENCHMARK_MAPPINGS
 
 class DatasetService:
     """

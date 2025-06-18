@@ -229,6 +229,17 @@ def api_evaluation_status(evaluation_id):
         "result_summary": evaluation.result_summary
     })
 
+@bp.route('/api/progress/<int:evaluation_id>')
+@login_required
+def api_evaluation_progress(evaluation_id):
+    """API端点: 获取评估任务进度"""
+    progress_info = EvaluationService.get_evaluation_progress(evaluation_id, current_user.id)
+    
+    if "error" in progress_info:
+        return jsonify(progress_info), 404
+    
+    return jsonify(progress_info)
+
 @bp.route('/<int:evaluation_id>/delete', methods=['POST'])
 @login_required
 def delete_evaluation(evaluation_id):

@@ -230,7 +230,7 @@
         </div>
         
         <div class="flex justify-end">
-            <button type="submit" class="btn btn-primary">
+            <button type="submit" id="submit-btn" class="btn btn-primary">
                 <i class="fas fa-play-circle mr-1"></i> 开始评估
             </button>
         </div>
@@ -241,6 +241,9 @@
 {% block scripts %}
 {{ super() }}
 <script>
+    // 防止重复点击的变量
+    let isSubmitting = false;
+    
     // 处理卡片点击事件
     function handleCardClick(event, cardElement, datasetId) {
         // 如果点击的是复选框或其标签，不处理
@@ -263,6 +266,72 @@
         }
     }
     
+    // 防止重复提交
+    function preventDuplicateSubmit(event) {
+        if (isSubmitting) {
+            event.preventDefault();
+            return false;
+        }
+        
+        // 验证表单
+        const form = event.target.closest('form');
+        if (!form) return true;
+        
+        // 检查是否选择了数据集
+        const selectedDatasets = form.querySelectorAll('input[type="checkbox"]:checked');
+        if (selectedDatasets.length === 0) {
+            alert('请至少选择一个数据集进行评估');
+            event.preventDefault();
+            return false;
+        }
+        
+        // 检查是否选择了模型
+        const modelSelect = form.querySelector('select[name="model_id"]');
+        if (!modelSelect.value) {
+            alert('请选择要评估的模型');
+            event.preventDefault();
+            return false;
+        }
+        
+        // 设置提交状态
+        isSubmitting = true;
+        const submitBtn = document.getElementById('submit-btn');
+        const originalText = submitBtn.innerHTML;
+        
+        // 更新按钮状态
+        submitBtn.disabled = true;
+        submitBtn.innerHTML = '<i class="fas fa-spinner fa-spin mr-1"></i> 正在创建评估...';
+        submitBtn.classList.add('btn-disabled');
+        
+        // 显示提示信息
+        showNotification('正在创建评估任务，请稍候...', 'info');
+        
+        return true;
+    }
+    
+    // 显示通知
+    function showNotification(message, type = 'info') {
+        // 创建通知元素
+        const notification = document.createElement('div');
+        notification.className = `alert alert-${type} fixed top-4 right-4 z-50 max-w-sm`;
+        notification.innerHTML = `
+            <div class="flex items-center">
+                <i class="fas fa-${type === 'info' ? 'info-circle' : 'exclamation-triangle'} mr-2"></i>
+                <span>${message}</span>
+            </div>
+        `;
+        
+        // 添加到页面
+        document.body.appendChild(notification);
+        
+        // 3秒后自动移除
+        setTimeout(() => {
+            if (notification.parentNode) {
+                notification.parentNode.removeChild(notification);
+            }
+        }, 3000);
+    }
+    
     // 监听复选框变化事件
     document.addEventListener('DOMContentLoaded', function() {
         const checkboxes = document.querySelectorAll('.dataset-checkbox');
@@ -272,6 +341,12 @@
                 updateCardStyle(card, this.checked);
             });
         });
+        
+        // 监听表单提交事件
+        const form = document.querySelector('form');
+        if (form) {
+            form.addEventListener('submit', preventDuplicateSubmit);
+        }
     });
 </script>
 {% endblock %} 
