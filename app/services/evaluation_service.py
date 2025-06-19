@@ -369,7 +369,16 @@ class EvaluationService:
                                             # 自建数据集比较文件名（去掉扩展名后的部分）
                                             if dataset.download_url:
                                                 dataset_filename = os.path.splitext(os.path.basename(dataset.download_url))[0]
-                                                if f'custom_dataset_{dataset.id}_{dataset_filename}' == filename_stem:
+                                                prefix = ''
+                                                if dataset.format.lower() == 'custom':
+                                                    prefix = f'custom_dataset_{dataset.id}'
+                                                elif dataset.format.lower() == 'qa':
+                                                    prefix = 'general_qa'
+                                                elif dataset.format.lower() == 'mcq':
+                                                    prefix = 'general_mcq'
+                                                else:
+                                                    prefix = f'custom_dataset_{dataset.id}'
+                                                if f'{prefix}_{dataset_filename}' == filename_stem:
                                                     corresponding_dataset = dataset
                                                     break
                                 

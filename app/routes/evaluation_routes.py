@@ -132,7 +132,10 @@ def create_evaluation():
                 datasets_data.append({'dataset_id': ds_id}) # 只传递 dataset_id
             
                 # 判断选择的数据集是否需要裁判模型
-                use_llm = EvaluationService.get_adapter_for_dataset(dataset.id).llm_as_a_judge
+                adapter = EvaluationService.get_adapter_for_dataset(dataset.id)
+                use_llm = False
+                if adapter:
+                    use_llm = adapter.llm_as_a_judge
                 if use_llm and not judge_model:
                     flash(f'选择的数据集{dataset.name}需要裁判模型，请选择裁判模型。', 'error')
                     return redirect(url_for('evaluations.create_evaluation'))
@@ -299,6 +302,7 @@ def view_detailed_results(evaluation_id):
         min_score=min_score,
         max_score=max_score
     )
+    print(f'+++++results: {results}')
     
     if page < 1: # 确保页码至少为1
         page = 1
