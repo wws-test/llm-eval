@@ -1,13 +1,16 @@
 from evalscope.benchmarks.benchmark import BENCHMARK_MAPPINGS, BenchmarkMeta  
 from evalscope.benchmarks.data_adapter import DataAdapter  
 from evalscope.constants import OutputType  
+from evalscope.metrics import LLMJudge, Metric, mean, metric_registry
 import json
-from typing import Dict, Any, List, Union
+from typing import Any, List, Union
 import os.path
 from collections import defaultdict
 from evalscope.utils.io_utils import jsonl_to_list
 from jinja2 import Environment, FileSystemLoader
 import os
+import re
+from app.models import Dataset
   
 # 动态创建DataAdapter类  
 class CustomDatasetAdapter(DataAdapter): 
@@ -19,6 +22,7 @@ class CustomDatasetAdapter(DataAdapter):
         # 注册自定义过滤器
         self.env.filters['from_json'] = lambda x: json.loads(x) if isinstance(x, str) else x
         self.env.filters['to_json'] = lambda x: json.dumps(x, ensure_ascii=False)
+        self.env.filters['regex_search'] = lambda text, pattern: re.search(pattern, text).group(0) if re.search(pattern, text) else None
         
         # 加载模板
         template_content = kwargs.get('template_content')
@@ -30,7 +34,7 @@ class CustomDatasetAdapter(DataAdapter):
             self.template = self.env.from_string(template_content)
             
             # 验证必需的宏是否存在
-            required_macros = ['gen_prompt', 'get_gold_answer', 'match', 'parse_pred_result', 'compute_metric', 'get_config']
+            required_macros = ['gen_prompt', 'get_gold_answer', 'match', 'parse_pred_result', 'get_config']
             missing_macros = []
             for macro_name in required_macros:
                 if not hasattr(self.template.module, macro_name):
@@ -113,6 +117,41 @@ class CustomDatasetAdapter(DataAdapter):
             return json.loads(result)
         except Exception as e:
             raise ValueError(f"比较结果失败：{str(e)}")
+        
+    def llm_match(self, gold: Any, pred: Any, judge: LLMJudge, **kwargs) -> dict:
+        try:
+            if hasattr(self.template.module, 'llm_match'):
+                # 使用模板比较结果
+                raw_input = kwargs.get('raw_input', None)
+                system_prompt = raw_input.get('system_prompt', '') if raw_input else ''
+                history = raw_input.get('history', []) if raw_input else []
+                question_keys = ['question', 'prompt', 'query', 'user']
+                question = next((raw_input.get(key) for key in question_keys if raw_input and raw_input.get(key)), '')
+                config = json.loads(self.template.module.get_config())
+                judge_system_prompt = config.get('judge_system_prompt', '')
+                judge_prompt_template = config.get('judge_prompt', '')
+                
+                # 动态检测模板中使用的占位符
+                format_params = {}
+                if '{question}' in judge_prompt_template:
+                    format_params['question'] = question or ''
+                if '{gold}' in judge_prompt_template:
+                    format_params['gold'] = gold
+                if '{pred}' in judge_prompt_template:
+                    format_params['pred'] = pred
+                if '{system_prompt}' in judge_prompt_template:
+                    format_params['system_prompt'] = system_prompt or ''
+                if '{history}' in judge_prompt_template:
+                    format_params['history'] = '\n'.join(history) if history else ''
+                
+                judge_prompt = judge_prompt_template.format(**format_params)
+                judge_response = judge(judge_prompt, judge_system_prompt)
+                result = self.template.module.llm_match(judge_response)
+                return json.loads(result)
+            else:
+                return super().llm_match(gold, pred, judge, **kwargs)
+        except Exception as e:
+            raise ValueError(f"比较结果失败：{str(e)}")
 
     def parse_pred_result(self, result: str, raw_input_d: dict = None, eval_type: str = 'checkpoint') -> str:
         try:
@@ -124,8 +163,12 @@ class CustomDatasetAdapter(DataAdapter):
     def compute_metric(self, review_res_list: Union[List[dict], List[List[dict]]], **kwargs) -> List[dict]:
         try:
             # 使用模板计算指标
-            result = self.template.module.compute_metric(review_res_list=review_res_list)
-            return json.loads(result)
+            if hasattr(self.template.module, 'compute_metric'):
+                result = self.template.module.compute_metric(review_res_list=review_res_list)
+                return json.loads(result)
+            else:
+                res_dict = super().compute_dict_metric(review_res_list, **kwargs)
+                return super().compute_metric(res_dict, **kwargs)
         except Exception as e:
             raise ValueError(f"计算指标失败：{str(e)}")
 
@@ -147,6 +190,28 @@ def register_custom_dataset_benchmark(dataset_id: int):
         dataset_name: 数据集名称，用于生成唯一的基准测试名称
     """
     benchmark_name = f'custom_dataset_{dataset_id}'
+
+    metric_list = ['AverageAccuracy']
+
+    # 获取dataset的模版信息
+    dataset = Dataset.query.filter_by(id=dataset_id).first()
+    if not dataset:
+        raise ValueError(f"数据集不存在: {dataset_id}")
+    template_content = dataset.jinja2_template
+    if template_content:
+        try:
+            # 创建临时环境来解析配置
+            temp_env = Environment()
+            temp_env.filters['from_json'] = lambda x: json.loads(x) if isinstance(x, str) else x
+            temp_env.filters['to_json'] = lambda x: json.dumps(x, ensure_ascii=False)
+            temp_env.filters['regex_search'] = lambda text, pattern: re.search(pattern, text).group(0) if re.search(pattern, text) else None
+
+            temp_template = temp_env.from_string(template_content)
+            if hasattr(temp_template.module, 'get_config'):
+                config = json.loads(temp_template.module.get_config())
+                metric_list = config.get('metric_list', ['AverageAccuracy'])
+        except Exception as e:
+            print(f"警告：无法从模板中读取配置，使用默认 metric_list: {e}")
     
     # 创建BenchmarkMeta实例
     benchmark_meta = BenchmarkMeta(
@@ -155,10 +220,13 @@ def register_custom_dataset_benchmark(dataset_id: int):
         data_adapter=CustomDatasetAdapter,
         model_adapter=OutputType.GENERATION,
         subset_list=['default'],
-        metric_list=['AverageAccuracy'],
+        metric_list=metric_list,
         few_shot_num=0,
         eval_split='test'
     )
+    for m in metric_list:
+        if m != 'AverageAccuracy':
+            metric_registry.register(Metric(name=m, object=mean))
     
     # 直接添加到全局注册表
     BENCHMARK_MAPPINGS[benchmark_name] = benchmark_meta

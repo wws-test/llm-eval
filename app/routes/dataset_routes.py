@@ -99,7 +99,7 @@ def add_custom_dataset():
             
             if form.jinja2_template.data:
                 # 验证Jinja2模板是否包含所需的宏
-                required_macros = ['gen_prompt', 'get_gold_answer', 'match', 'parse_pred_result', 'compute_metric']
+                required_macros = ['gen_prompt', 'get_gold_answer', 'match', 'parse_pred_result', 'get_config']
                 template_content = form.jinja2_template.data
                 missing_macros = []
                 for macro in required_macros:

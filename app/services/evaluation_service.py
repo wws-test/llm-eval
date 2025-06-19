@@ -865,7 +865,7 @@ class EvaluationService:
             
         except Exception as e:
             current_app.logger.error(f"获取数据集 {dataset_id} 的adapter失败: {str(e)}")
-            return None 
+            raise e
 
     @staticmethod
     def get_evaluation_progress(evaluation_id: int, user_id: int) -> Dict[str, Any]:
