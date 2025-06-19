@@ -302,7 +302,6 @@ def view_detailed_results(evaluation_id):
         min_score=min_score,
         max_score=max_score
     )
-    print(f'+++++results: {results}')
     
     if page < 1: # 确保页码至少为1
         page = 1
