@@ -852,7 +852,6 @@ class EvaluationService:
             # 动态注册自定义数据集基准测试[重启后内存数据会丢失，所以动态注册下]
             from app.adapter.custom_dataset_adapter import register_custom_dataset_benchmark
             register_custom_dataset_benchmark(dataset.id)
-
             # 统一通过BENCHMARK_MAPPINGS获取adapter
             if dataset_name in BENCHMARK_MAPPINGS:
                 benchmark_meta = BENCHMARK_MAPPINGS[dataset_name]

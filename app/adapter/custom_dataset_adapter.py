@@ -213,6 +213,10 @@ def register_custom_dataset_benchmark(dataset_id: int):
         except Exception as e:
             print(f"警告：无法从模板中读取配置，使用默认 metric_list: {e}")
     
+    for m in metric_list:
+        if m not in metric_registry.list_metrics():
+            metric_registry.register(Metric(name=m, object=mean))
+
     # 创建BenchmarkMeta实例
     benchmark_meta = BenchmarkMeta(
         name=benchmark_name,
@@ -224,9 +228,6 @@ def register_custom_dataset_benchmark(dataset_id: int):
         few_shot_num=0,
         eval_split='test'
     )
-    for m in metric_list:
-        if m != 'AverageAccuracy':
-            metric_registry.register(Metric(name=m, object=mean))
     
     # 直接添加到全局注册表
     BENCHMARK_MAPPINGS[benchmark_name] = benchmark_meta

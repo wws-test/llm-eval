@@ -167,7 +167,8 @@ python run.py --debug
 
 ### 自定义数据集
 如果你的数据集不是[选择题](#qa格式)、[问答题](#mcq格式)，你可能需要自定义数据集来满足自己的需求。
-自定义数据集使用Jinja2模版来实现数据字段和指标的定义。模板需要包含宏：gen_prompt, get_gold_answer, match, parse_pred_result,compute_metric
+自定义数据集使用Jinja2模版来实现数据字段和指标的定义。模板需要包含宏：gen_prompt, get_gold_answer, match, parse_pred_result,get_config
+
 
 以落域抽槽为例(不使用裁判模型)：
 ```jinja2
@@ -239,7 +240,7 @@ python run.py --debug
     {% set correct_slots = [] %}
     {% set fail_slots = [] %}
     
-    {# 遍历黄金标准中的槽位 #}
+    {# 遍历参考答案中的槽位 #}
     {% for key, value in gold_slots.items() %}
         {% if value != '' %}
             {% if key not in pred_slots %}
