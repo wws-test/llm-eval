@@ -168,6 +168,11 @@ python run.py --debug
 ### 自定义数据集
 如果你的数据集不是[选择题](#qa格式)、[问答题](#mcq格式)，你可能需要自定义数据集来满足自己的需求。
 自定义数据集使用Jinja2模版来实现数据字段和指标的定义。模板需要包含宏：gen_prompt, get_gold_answer, match, parse_pred_result,get_config
+其中`get_config`中可配置字段如下：
+- llm_as_a_judge: 该数据集是否使用LLM作为裁判，如果使用需要配置裁判模型
+- judge_system_prompt: 如果使用裁判模型，裁判模型进行评估时的系统prompt，非必须
+- judge_prompt: 如果使用裁判模型，裁判模型进行评估时的prompt，必须。占位符包括：question、system_prompt、hisotry、gold、pred
+- metric_list: 度量指标列表，如果提供，需要在match/llm_match子集或系统提供的子集['AverageAccuracy', 'WeightedAverageAccuracy', 'AverageBLEU', 'AverageRouge', 'WeightedAverageBLEU', 'AveragePass@1', 'Pass@1', 'Pass@2', 'Pass@3', 'Pass@4', 'Pass@5', 'Pass@6', 'Pass@7', 'Pass@8', 'Pass@9', 'Pass@10', 'Pass@11', 'Pass@12', 'Pass@13', 'Pass@14', 'Pass@15', 'Pass@16', 'VQAScore', 'PickScore', 'CLIPScore', 'BLIPv2Score', 'HPSv2Score', 'HPSv2.1Score', 'ImageRewardScore', 'FGA_BLIP2Score', 'MPS']中，如果不提供默认是AverageAccuracy
 
 
 以落域抽槽为例(不使用裁判模型)：
@@ -387,7 +392,7 @@ python run.py --debug
 {% endmacro %}
 
 {# 7. 计算评估指标 #}
-{# 可以为空，为空时使用默认实现子集的均值#}
+{# 可以为空，为空时计算伤处指标在数据子集的均值#}
 ```
 
 ### 项目结构
@@ -447,7 +452,7 @@ llm-eva/
 ## 🆘 常见问题
 
 ### Q: 如何添加新的评估基准？
-A: 可以通过扩展 EvalScope 的适配器来添加自定义基准，详见开发文档。
+A: 可以通过使用Jinja2模板来实现，也可以通过扩展 EvalScope 的适配器来添加自定义基准，可以参考[custom_dataset_adapter.py](https://github.com/justplus/llm-eval/blob/main/app/adapter/custom_dataset_adapter.py)。
 
 ### Q: 支持哪些模型API格式？
 A: 支持 OpenAI 兼容的 API 格式，包括大部分主流大模型服务。
