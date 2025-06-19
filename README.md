@@ -322,7 +322,7 @@ python run.py --debug
 以simpleQA为例(使用裁判模型)
 
 ```jinja2
-{# 意图识别评估模板 #}
+{# simpleQA评估模板 #}
 {# 1. 配置 #}
 {% macro get_config() %}
 {
