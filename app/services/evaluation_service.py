@@ -156,7 +156,9 @@ class EvaluationService:
                             dataset_file_path = dataset.download_url
                             dataset_dir = os.path.dirname(dataset_file_path)
                             dataset_name = os.path.splitext(os.path.basename(dataset_file_path))[0]
-                            
+                            # 去除文件名中的_val后缀
+                            if dataset_name.endswith('_val'):
+                                dataset_name = dataset_name[:-4]  # 移除最后的_val
                             # 确保有general_mcq的dataset_args
                             if 'general_mcq' not in dataset_args:
                                 dataset_args['general_mcq'] = {
@@ -177,7 +179,6 @@ class EvaluationService:
                             dataset_file_path = dataset.download_url
                             dataset_dir = os.path.dirname(dataset_file_path)
                             dataset_name = os.path.splitext(os.path.basename(dataset_file_path))[0]
-                            
                             # 确保有general_qa的dataset_args
                             if 'general_qa' not in dataset_args:
                                 dataset_args['general_qa'] = {
@@ -376,6 +377,8 @@ class EvaluationService:
                                                     prefix = 'general_qa'
                                                 elif dataset.format.lower() == 'mcq':
                                                     prefix = 'general_mcq'
+                                                    if dataset_filename.endswith('_val'):
+                                                        dataset_filename = dataset_filename[:-4]
                                                 else:
                                                     prefix = f'custom_dataset_{dataset.id}'
                                                 if f'{prefix}_{dataset_filename}' == filename_stem:

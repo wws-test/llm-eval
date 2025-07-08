@@ -127,6 +127,10 @@ def add_custom_dataset():
                     # 生成新的文件名（添加时间戳以避免重名）
                     timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
                     new_filename = f"{timestamp}_{filename}"
+                    if form.format.data == 'MCQ':
+                        # mcq在扩展名之前加上_val
+                        name_without_ext, ext = os.path.splitext(filename)
+                        new_filename = f"{timestamp}_{name_without_ext}_val{ext}"
                     file_path = os.path.join(upload_dir, new_filename)
                     
                     # 保存文件
