@@ -905,7 +905,6 @@ class EvaluationService:
             # 获取评估输出目录
             evalscope_run_timestamp = evaluation.created_at.strftime('%Y%m%d_%H%M%S')
             base_output_dir = os.path.join(get_outputs_dir(), f'eval_{evaluation_id}_{evalscope_run_timestamp}')
-            current_app.logger.info(f"++++base_output_dir: {base_output_dir}")
             # 检查输出目录是否存在
             if not os.path.exists(base_output_dir):
                 return {

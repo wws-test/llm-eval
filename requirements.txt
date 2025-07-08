@@ -8,7 +8,7 @@ requests
 python-dotenv
 PyMySQL
 openai
-modelscope
+modelscope==1.25.0
 evalscope
 evalscope[perf]
 pandas

@@ -131,7 +131,7 @@ def add_custom_dataset():
                     
                     # 保存文件
                     file.save(file_path)
-                    
+                    subset_name = 'default'
                     # 根据文件类型处理数据
                     if filename.endswith('.jsonl'):
                         # 处理JSONL文件
@@ -152,7 +152,6 @@ def add_custom_dataset():
                             return render_template('datasets/add_custom_dataset.html', title='添加自定义数据集', form=form)
                         
                         # 创建数据集结构信息
-                        subset_name = 'default'
                         dataset_info_data = {
                             subset_name: {
                                 "features": {
