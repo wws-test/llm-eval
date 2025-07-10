@@ -724,14 +724,12 @@ class EvaluationService:
             # 首先尝试使用adapter生成完整的prompt
             # 通过result.dataset获取数据集信息，然后使用benchmark_name
             dataset = result.dataset
-            print(f'++++++~~~dataset: {dataset}')
             if not dataset:
                 # 如果没有dataset关系，回退到格式化逻辑
                 return EvaluationService._format_prompt_from_raw_data(raw_input_data)
             
             benchmark_name = f'custom_dataset_{dataset.id}' if dataset.format.lower() == 'custom' else dataset.name
             adapter = EvaluationService.get_adapter_for_dataset(dataset.id)
-            print(f'++++++~~~adapter: {adapter}')
             if adapter:
                 try:
                     # 调用adapter的gen_prompt方法，传递正确的参数
