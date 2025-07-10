@@ -408,16 +408,16 @@ class EvaluationService:
 
                                         parsed_gold_answer = review_data.get('gold', '')
                                         parsed_pred_answer_for_feedback = review_data.get('pred', '') 
-                                        score = review_data.get('result')
+                                        review_result = review_data.get('result')
 
                                         # 处理不同格式的result
                                         try:
-                                            if score is not None:
-                                                if isinstance(score, dict):
+                                            if review_result is not None:
+                                                if isinstance(review_result, dict):
                                                     # 处理复合结果格式: {"intent_result": true, "slots_result": {"miss_count": 1, "correct_count": 1, "fail_count": 0}}
-                                                    if 'intent_result' in score and 'slots_result' in score:
-                                                        intent_result = score.get('intent_result', False)
-                                                        slots_result = score.get('slots_result', {})
+                                                    if 'intent_result' in review_result and 'slots_result' in review_result:
+                                                        intent_result = review_result.get('intent_result', False)
+                                                        slots_result = review_result.get('slots_result', {})
                                                         
                                                         # 计算slot的F1分数
                                                         correct_count = slots_result.get('correct_count', 0)
@@ -443,13 +443,15 @@ class EvaluationService:
                                                         score = float(intent_result) * 0.5 + 0.5 * slot_f1
                                                         current_app.logger.debug(f"[评估任务 {evaluation_id}] 复合结果计算: intent={intent_result}, slot_f1={slot_f1:.4f}, final_score={score:.4f}")
                                                     else:
-                                                        # 其他字典格式，尝试转换为float
-                                                        score = float(score)
+                                                        if 'score' in review_result:
+                                                            score = float(review_result.get('score', None))
+                                                        else: # 新增此分支，如果score是字典但没有'score'键，则设置为None
+                                                            current_app.logger.warning(f"[评估任务 {evaluation_id}] 'score' field not found in dict result '{review_result}' for an item in {review_file_path}. Setting to None.")
+                                                            score = None
                                                 else:
-                                                    # 原有的简单数值格式
-                                                    score = float(score)
+                                                    score = float(review_result)
                                         except (ValueError, TypeError) as e:
-                                            current_app.logger.warning(f"[评估任务 {evaluation_id}] Could not parse score '{score}' for an item in {review_file_path}. Error: {str(e)}. Setting to None.")
+                                            current_app.logger.warning(f"[评估任务 {evaluation_id}] Could not parse score '{review_result}' for an item in {review_file_path}. Error: {str(e)}. Setting to None.")
                                             score = None
 
                                         result_entry = ModelEvaluationResult(
@@ -722,12 +724,14 @@ class EvaluationService:
             # 首先尝试使用adapter生成完整的prompt
             # 通过result.dataset获取数据集信息，然后使用benchmark_name
             dataset = result.dataset
+            print(f'++++++~~~dataset: {dataset}')
             if not dataset:
                 # 如果没有dataset关系，回退到格式化逻辑
                 return EvaluationService._format_prompt_from_raw_data(raw_input_data)
             
             benchmark_name = f'custom_dataset_{dataset.id}' if dataset.format.lower() == 'custom' else dataset.name
             adapter = EvaluationService.get_adapter_for_dataset(dataset.id)
+            print(f'++++++~~~adapter: {adapter}')
             if adapter:
                 try:
                     # 调用adapter的gen_prompt方法，传递正确的参数
@@ -858,15 +862,16 @@ class EvaluationService:
             dataset = Dataset.query.get(dataset_id)
             if not dataset:
                 return None
-            dataset_name = f'custom_dataset_{dataset.id}' if dataset.format.lower() == 'custom' else dataset.name
+            
+            dataset_format = f'custom_dataset_{dataset.id}' if dataset.format.lower() == 'custom' else f'general_{dataset.format.lower()}'
             # 导入BENCHMARK_MAPPINGS
             from evalscope.benchmarks.benchmark import BENCHMARK_MAPPINGS
             # 动态注册自定义数据集基准测试[重启后内存数据会丢失，所以动态注册下]
             from app.adapter.custom_dataset_adapter import register_custom_dataset_benchmark
             register_custom_dataset_benchmark(dataset.id)
             # 统一通过BENCHMARK_MAPPINGS获取adapter
-            if dataset_name in BENCHMARK_MAPPINGS:
-                benchmark_meta = BENCHMARK_MAPPINGS[dataset_name]
+            if dataset_format in BENCHMARK_MAPPINGS:
+                benchmark_meta = BENCHMARK_MAPPINGS[dataset_format]
                 adapter_class = benchmark_meta.data_adapter
                 if dataset.format.lower() == 'custom':
                     return adapter_class(**benchmark_meta.to_dict(), template_content=dataset.jinja2_template)

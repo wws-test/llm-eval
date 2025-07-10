@@ -46,6 +46,7 @@ class CustomDatasetAdapter(DataAdapter):
             # 从模板获取配置
             config = json.loads(self.template.module.get_config())
             self.llm_as_a_judge = config.get('llm_as_a_judge', False)
+            kwargs['llm_as_a_judge'] = self.llm_as_a_judge
                 
         except Exception as e:
             raise ValueError(f"加载 Jinja2 模板失败：{str(e)}")
