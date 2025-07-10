@@ -175,7 +175,7 @@ python run.py --debug
 - metric_list: 度量指标列表，如果提供，需要在match/llm_match子集或系统提供的子集['AverageAccuracy', 'WeightedAverageAccuracy', 'AverageBLEU', 'AverageRouge', 'WeightedAverageBLEU', 'AveragePass@1', 'Pass@1', 'Pass@2', 'Pass@3', 'Pass@4', 'Pass@5', 'Pass@6', 'Pass@7', 'Pass@8', 'Pass@9', 'Pass@10', 'Pass@11', 'Pass@12', 'Pass@13', 'Pass@14', 'Pass@15', 'Pass@16', 'VQAScore', 'PickScore', 'CLIPScore', 'BLIPv2Score', 'HPSv2Score', 'HPSv2.1Score', 'ImageRewardScore', 'FGA_BLIP2Score', 'MPS']中，如果不提供默认是AverageAccuracy
 
 
-以落域抽槽为例(不使用裁判模型)：
+例子1：落域抽槽(不使用裁判模型)：
 ```jinja2
 {# 意图识别评估模板 #}
 {# 1. 配置 #}
@@ -325,7 +325,7 @@ python run.py --debug
 {% endmacro %}
 ```
 
-以simpleQA为例(使用裁判模型)
+例子2：simpleQA(有参考答案，裁判模型依据参考答案判断)
 
 ```jinja2
 {# simpleQA评估模板 #}
@@ -388,6 +388,66 @@ python run.py --debug
     "is_incorrect": {{ 1 if res == 'B' else 0 }},
     "is_not_attempted": {{ 1 if res == 'C' else 0 }},
     "judge_response": {{ judge_response | to_json }}
+}
+{% endmacro %}
+
+{# 7. 计算评估指标 #}
+{# 可以为空，为空时计算伤处指标在数据子集的均值#}
+```
+
+例子3：没有参考答案的情况(使用裁判模型直接判断生成结果)：
+
+```jinja2
+{# 没有参考答案评估模板 #}
+{# 1. 配置 #}
+{% macro get_config() %}
+{
+    "llm_as_a_judge": true,  {# 是否使用LLM作为裁判 #}
+    "judge_system_prompt": "你是一个智能助手，请判断答案跟问题是否匹配并给出0-10的得分，注意只输出得分不需要过程，评判规则：答案跟问题完全相关且没有逻辑错误得10分，不符合依次扣分。",  {# 裁判系统提示词 #}
+    "judge_prompt": "问题: {question}\n\n预测答案: {pred}\n\n你给出的得分是：",  {# 裁判提示词 #}
+    "metric_list": ["score"] {# 度量指标 #}
+}
+{% endmacro %}
+
+{# 2. 生成提示词 #}
+{% macro gen_prompt(system_prompt, history, user_prompt) %}
+{% set final_user_prompt = user_prompt %}
+{% if history %}
+    {% set history_prompt = '' %}
+    {% for h in history %}
+        {% for k, v in h.items() %}
+            {% set history_prompt = history_prompt ~ k ~ ': ' ~ v ~ '\n' %}
+        {% endfor %}
+    {% endfor %}
+    {% set final_user_prompt = "用户的对话内容如下：\n" ~ history_prompt ~ "user: " ~ user_prompt ~ "\n" %}
+{% endif %}
+{
+    "system_prompt": {{ system_prompt | to_json }},
+    "user_prompt": {{ final_user_prompt | to_json }}
+}
+{% endmacro %}
+
+{# 3. 获取标准答案 #}
+{% macro get_gold_answer(input_d) %}
+{{ input_d.get('answer', '') }}
+{% endmacro %}
+
+{# 4. 解析预测结果 #}
+{% macro parse_pred_result(result) %}
+{{result | trim}}
+{% endmacro %}
+
+{# 5. 比较预测结果和标准答案 #}
+{% macro match(gold, pred) %}
+{}
+{% endmacro %}
+
+{# 6. LLM裁判响应解析，llm_as_a_judge会使用到 #}
+{% macro llm_match(judge_response) %}
+{% set match_result = judge_response | regex_search('(\d+)') %}
+{% set res = match_result if match_result else '0' %}
+{
+    "score": {{ res }}
 }
 {% endmacro %}
 
