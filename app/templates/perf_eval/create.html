@@ -18,12 +18,12 @@
             <h2 class="card-title text-xl mb-6">
                 <i class="fas fa-cog mr-2"></i>配置性能评估参数
             </h2>
-            <form method="POST" action="{{ url_for('perf_eval.create') }}" class="space-y-6">
+            <form method="POST" action="{{ url_for('perf_eval.create') }}" class="space-y-2">
                 {{ form.hidden_tag() }}
                 
                 <div class="grid grid-cols-1 md:grid-cols-2 gap-8">
                     <!-- 左列 -->
-                    <div class="space-y-6">
+                    <div class="space-y-2">
                         <div class="form-control w-full">
                             <label class="label">
                                 <span class="label-text font-semibold">
@@ -63,10 +63,50 @@
                                 <span class="label-text-alt">同时发送请求的并发数量</span>
                             </label>
                         </div>
+                        
+                        <div class="form-control w-full">
+                            <label class="label">
+                                <span class="label-text font-semibold">
+                                    <i class="fas fa-text-height mr-2 text-warning"></i>{{ form.min_prompt_length.label.text }}
+                                </span>
+                            </label>
+                            {{ form.min_prompt_length(class="input input-bordered w-full focus:input-warning", placeholder="默认: 0") }}
+                            {% if form.min_prompt_length.errors %}
+                                <label class="label">
+                                    <span class="label-text-alt text-error">
+                                        <i class="fas fa-exclamation-triangle mr-1"></i>
+                                        {% for error in form.min_prompt_length.errors %}{{ error }}{% endfor %}
+                                    </span>
+                                </label>
+                            {% endif %}
+                            <label class="label">
+                                <span class="label-text-alt">{{ form.min_prompt_length.description }}</span>
+                            </label>
+                        </div>
+                        
+                        <div class="form-control w-full">
+                            <label class="label">
+                                <span class="label-text font-semibold">
+                                    <i class="fas fa-text-width mr-2 text-success"></i>{{ form.max_tokens.label.text }}
+                                </span>
+                            </label>
+                            {{ form.max_tokens(class="input input-bordered w-full focus:input-success", placeholder="例如: 2048") }}
+                            {% if form.max_tokens.errors %}
+                            <label class="label">
+                                <span class="label-text-alt text-error">
+                                    <i class="fas fa-exclamation-triangle mr-1"></i>
+                                    {% for error in form.max_tokens.errors %}{{ error }}{% endfor %}
+                                </span>
+                            </label>
+                            {% endif %}
+                            <label class="label">
+                                <span class="label-text-alt">{{ form.max_tokens.description }}</span>
+                            </label>
+                        </div>
                     </div>
 
                     <!-- 右列 -->
-                    <div class="space-y-6">
+                    <div class="space-y-2">
                         <div class="form-control w-full">
                             <label class="label">
                                 <span class="label-text font-semibold">
@@ -106,6 +146,51 @@
                                 <span class="label-text-alt">总共发送的请求数量</span>
                             </label>
                         </div>
+                        
+                        <div class="form-control w-full">
+                            <label class="label">
+                                <span class="label-text font-semibold">
+                                    <i class="fas fa-text-width mr-2 text-warning"></i>{{ form.max_prompt_length.label.text }}
+                                </span>
+                            </label>
+                            {{ form.max_prompt_length(class="input input-bordered w-full focus:input-warning", placeholder="默认: 131072") }}
+                            {% if form.max_prompt_length.errors %}
+                            <label class="label">
+                                <span class="label-text-alt text-error">
+                                    <i class="fas fa-exclamation-triangle mr-1"></i>
+                                    {% for error in form.max_prompt_length.errors %}{{ error }}{% endfor %}
+                                </span>
+                            </label>
+                            {% endif %}
+                            <label class="label">
+                                <span class="label-text-alt">{{ form.max_prompt_length.description }}</span>
+                            </label>
+                        </div>
+                        
+                        <div class="form-control w-full">
+                            <label class="label">
+                                <span class="label-text font-semibold">
+                                    <i class="fas fa-code mr-2 text-info"></i>{{ form.extra_args.label.text }}
+                                </span>
+                            </label>
+                            {{ form.extra_args(class="textarea textarea-bordered h-12 w-full focus:textarea-info", placeholder='例如: {"ignore_eos": true}') }}
+                            {% if form.extra_args.errors %}
+                            <label class="label">
+                                <span class="label-text-alt text-error">
+                                    <i class="fas fa-exclamation-triangle mr-1"></i>
+                                    {% for error in form.extra_args.errors %}{{ error }}{% endfor %}
+                                </span>
+                            </label>
+                            {% endif %}
+                            <label class="label">
+                                <span class="label-text-alt">{{ form.extra_args.description }}</span>
+                            </label>
+                            <label class="label">
+                                <span class="label-text-alt text-info">
+                                    <i class="fas fa-info-circle mr-1"></i>必须是合法的JSON格式，注意：使用双引号而非单引号，布尔值使用小写(true/false)
+                                </span>
+                            </label>
+                        </div>
                     </div>
                 </div>
 
@@ -119,7 +204,7 @@
                                 <li>性能评估将测试模型的响应速度、吞吐量和延迟等指标</li>
                                 <li>评估过程可能需要几分钟到几十分钟，具体取决于请求数量和并发数</li>
                                 <li>建议先使用较小的参数进行测试，确认配置正确后再进行大规模评估</li>
-                                <li>只支持自建数据集（包括自己创建的和别人公开的），确保数据安全和可控性</li>
+                                <li>可以配置输入输出的限制参数，如最小/最大输入长度、最大生成token数等</li>
                             </ul>
                         </div>
                     </div>

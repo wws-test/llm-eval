@@ -61,7 +61,17 @@ def create():
             
             if task:
                 # 启动评估任务
-                PerformanceEvaluationService.run_performance_evaluation(task.id, form.model_name.data, form.dataset_name.data, form.concurrency.data, form.num_requests.data)
+                PerformanceEvaluationService.run_performance_evaluation(
+                    task.id, 
+                    form.model_name.data, 
+                    form.dataset_name.data, 
+                    form.concurrency.data, 
+                    form.num_requests.data,
+                    min_prompt_length=form.min_prompt_length.data,
+                    max_prompt_length=form.max_prompt_length.data,
+                    max_tokens=form.max_tokens.data,
+                    extra_args=form.extra_args.data
+                )
                 flash(f'性能评估任务已创建并开始执行，任务ID: {task.id}', 'success')
                 return redirect(url_for('perf_eval.results', task_id=task.id, source='create'))
             else:

@@ -445,12 +445,21 @@ class PerformanceEvaluationService:
             return None
 
     @staticmethod
-    def run_performance_evaluation(task_id: int, model_id: int, dataset_id: int, concurrency: int, num_requests: int):
+    def run_performance_evaluation(task_id: int, model_id: int, dataset_id: int, concurrency: int, num_requests: int,
+                                 min_prompt_length=None, max_prompt_length=None, max_tokens=None, extra_args=None):
         """
         运行性能评估任务
         
         Args:
             task_id: 任务ID
+            model_id: 模型ID
+            dataset_id: 数据集ID
+            concurrency: 并发路数
+            num_requests: 请求数量
+            min_prompt_length: 最小输入prompt长度
+            max_prompt_length: 最大输入prompt长度
+            max_tokens: 最大生成token数量
+            extra_args: 额外传入请求体的参数，JSON字符串
         """
         try:
             task = PerformanceEvalTask.query.get(task_id)
@@ -486,6 +495,30 @@ class PerformanceEvaluationService:
                 "stream": True,
                 "api_key": selected_model.encrypted_api_key
             }
+            
+            # 添加新的参数
+            if min_prompt_length is not None:
+                task_cfg["min_prompt_length"] = min_prompt_length
+                
+            if max_prompt_length is not None:
+                task_cfg["max_prompt_length"] = max_prompt_length
+                
+            if max_tokens is not None:
+                task_cfg["max_tokens"] = max_tokens
+                
+            # 处理额外参数
+            if extra_args and extra_args.strip():
+                try:
+                    import json
+                    current_app.logger.info(f"解析extra_args: {extra_args}")
+                    extra_args_dict = json.loads(extra_args)
+                    task_cfg["extra_args"] = extra_args_dict
+                    current_app.logger.info(f"成功解析extra_args: {extra_args_dict}")
+                except json.JSONDecodeError as e:
+                    current_app.logger.error(f"解析extra_args失败: {str(e)}, 忽略")
+                except Exception as e:
+                    current_app.logger.error(f"处理extra_args时发生未知错误: {str(e)}, 忽略")
+            
             if dataset != 'openqa':
                 task_cfg['dataset_path'] = selected_dataset.download_url
             

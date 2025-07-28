@@ -65,4 +65,25 @@ class PerformanceEvalForm(FlaskForm):
     dataset_name = SelectField('选择数据集', validators=[DataRequired()])
     concurrency = IntegerField('并发路数', validators=[DataRequired(), NumberRange(min=1, max=100)], default=5)
     num_requests = IntegerField('总请求数量', validators=[DataRequired(), NumberRange(min=1, max=10000)], default=20)
-    submit = SubmitField('开始评估') 
+    
+    # 新增参数字段
+    min_prompt_length = IntegerField('最小输入prompt长度', validators=[Optional(), NumberRange(min=0)], default=0, 
+                                  description='小于该值时该prompt将不参与性能评估')
+    max_prompt_length = IntegerField('最大输入prompt长度', validators=[Optional(), NumberRange(min=1)], default=131072, 
+                                  description='大于该值时该prompt将不参与性能评估')
+    max_tokens = IntegerField('最大生成Token数', validators=[Optional(), NumberRange(min=1)], 
+                           description='可以生成的最大token数量，不配置则取决于模型')
+    extra_args = TextAreaField('额外参数', validators=[Optional()], 
+                            description='额外传入请求体的参数，格式为JSON字符串，例如：{"ignore_eos": true}')
+    
+    submit = SubmitField('开始评估')
+    
+    def validate_extra_args(self, field):
+        """验证额外参数是否为有效的JSON格式"""
+        if field.data and field.data.strip():
+            try:
+                import json
+                json.loads(field.data)
+            except json.JSONDecodeError as e:
+                from wtforms import ValidationError
+                raise ValidationError(f'JSON格式错误: {str(e)}') 
