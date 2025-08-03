@@ -147,3 +147,9 @@ data/
 .env
 
 .vscode
+
+# Node.js
+node_modules/
+dist/
+dist-ssr/
+.pnpm-store/
