@@ -1,5 +1,5 @@
 import { defineStore } from 'pinia'
-import { ref } from 'vue'
+import { ref, computed } from 'vue'
 
 export interface ChatMessage {
   id: string
@@ -29,7 +29,7 @@ export const useChatStore = defineStore('chat', () => {
 
   const createSession = (modelId: string) => {
     const newSession: ChatSession = {
-      id: uuidv4(),
+      id: Date.now().toString(),
       title: '新的对话',
       messages: [],
       modelId: modelId,
@@ -55,7 +55,7 @@ export const useChatStore = defineStore('chat', () => {
     if (!currentSession.value) return
 
     const userMessage: ChatMessage = {
-      id: uuidv4(),
+      id: Date.now().toString(),
       role: 'user',
       content,
       timestamp: new Date(),
@@ -66,72 +66,22 @@ export const useChatStore = defineStore('chat', () => {
       currentSession.value.title = content.substring(0, 20)
     }
 
+    // 模拟AI回复
     const assistantMessage: ChatMessage = {
-      id: uuidv4(),
+      id: (Date.now() + 1).toString(),
       role: 'assistant',
-      content: '',
+      content: '这是一个模拟回复，对话功能正在开发中。',
       timestamp: new Date(),
-      streaming: true,
     }
-    currentSession.value.messages.push(assistantMessage)
 
-    isLoading.value = true
-    error.value = null
-
-    const apiMessages: ApiChatMessage[] = currentSession.value.messages
-      .filter((msg) => !msg.streaming)
-      .map((msg) => ({
-        role: msg.role,
-        content: msg.content,
-      }))
-
-    try {
-      streamChat(
-        {
-          model: currentSession.value.modelId,
-          messages: apiMessages,
-          stream: true,
-        },
-        (chunk) => {
-          const assistantMsg = currentSession.value?.messages.find((m) => m.id === assistantMessage.id)
-          if (assistantMsg) {
-            assistantMsg.content += chunk
-          }
-        },
-        () => {
-          const assistantMsg = currentSession.value?.messages.find((m) => m.id === assistantMessage.id)
-          if (assistantMsg) {
-            delete assistantMsg.streaming
-          }
-          isLoading.value = false
-        },
-        (err) => {
-          error.value = err
-          isLoading.value = false
-          const assistantMsg = currentSession.value?.messages.find((m) => m.id === assistantMessage.id)
-          if (assistantMsg) {
-            assistantMsg.content = '抱歉，发生了错误。'
-            delete assistantMsg.streaming
-          }
-        }
-      )
-    } catch (err) {
-      error.value = err
-      isLoading.value = false
-      const assistantMsg = currentSession.value?.messages.find((m) => m.id === assistantMessage.id)
-      if (assistantMsg) {
-        assistantMsg.content = '抱歉，启动连接时发生错误。'
-        delete assistantMsg.streaming
-      }
-    }
+    setTimeout(() => {
+      currentSession.value?.messages.push(assistantMessage)
+    }, 1000)
   }
-  
+
   const loadChatHistory = async (sessionId: string) => {
-    // In a real application, you would fetch this from a persistent storage
     console.log(`Loading history for session ${sessionId}...`)
-    // This is a placeholder. Implement history loading from your backend if needed.
   }
-
 
   return {
     sessions,

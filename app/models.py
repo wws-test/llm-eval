@@ -307,6 +307,13 @@ class PerformanceEvalTask(db.Model):
     raw_output = db.Column(db.Text, nullable=True)
     error_message = db.Column(db.Text, nullable=True)
 
+    # 批量测试支持字段
+    task_type = db.Column(db.String(20), nullable=False, default='single')  # 'single' 或 'batch'
+    task_name = db.Column(db.String(200), nullable=True)  # 任务名称
+    task_description = db.Column(db.Text, nullable=True)  # 任务描述
+    batch_config = db.Column(db.Text, nullable=True)  # 批量测试配置（JSON格式）
+    batch_results = db.Column(db.Text, nullable=True)  # 批量测试结果（JSON格式）
+
     # 关联到用户
     user = db.relationship('User', backref=db.backref('model_efficiency', lazy='dynamic'))
 
@@ -315,6 +322,40 @@ class PerformanceEvalTask(db.Model):
 
     def __repr__(self):
         return f'<PerformanceEvalTask {self.id} for model {self.model_name} on dataset {self.dataset_name}>'
+
+    def is_batch_task(self):
+        """判断是否为批量测试任务"""
+        return self.task_type == 'batch'
+
+    def get_batch_config(self):
+        """获取批量测试配置"""
+        if self.batch_config:
+            import json
+            try:
+                return json.loads(self.batch_config)
+            except:
+                return None
+        return None
+
+    def set_batch_config(self, config):
+        """设置批量测试配置"""
+        import json
+        self.batch_config = json.dumps(config, ensure_ascii=False)
+
+    def get_batch_results(self):
+        """获取批量测试结果"""
+        if self.batch_results:
+            import json
+            try:
+                return json.loads(self.batch_results)
+            except:
+                return None
+        return None
+
+    def set_batch_results(self, results):
+        """设置批量测试结果"""
+        import json
+        self.batch_results = json.dumps(results, ensure_ascii=False)
 
 def init_database_data():
     """

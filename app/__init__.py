@@ -3,12 +3,13 @@ from flask_sqlalchemy import SQLAlchemy
 from flask_login import LoginManager
 from flask_migrate import Migrate
 from flask_wtf.csrf import CSRFProtect
+from flask_cors import CORS
 from .config import config
 import datetime
 import logging  # 添加logging模块导入
 import os  # 添加os模块导入
 # 导入数据集插件，确保@register_dataset装饰器能够正确注册
-from app.adapter.custom_dataset_plugin import CustomDatasetPlugin
+# from app.adapter.custom_dataset_plugin import CustomDatasetPlugin  # 暂时注释掉，专注API开发
 from logging.handlers import RotatingFileHandler
 
 # 修复Flask-Login的redirect导入问题
@@ -130,6 +131,14 @@ def create_app(config_name=None):
     migrate.init_app(app, db)
     login_manager.init_app(app)
     csrf.init_app(app)
+
+    # 配置CORS - 允许前端跨域访问API
+    CORS(app,
+         origins=['http://localhost:3000', 'http://127.0.0.1:3000'],  # 前端开发服务器地址
+         supports_credentials=True,  # 支持携带认证信息
+         allow_headers=['Content-Type', 'Authorization'],  # 允许的请求头
+         methods=['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS']  # 允许的HTTP方法
+    )
     
     # 添加自定义Jinja2过滤器
     @app.template_filter('from_json')
@@ -222,6 +231,10 @@ def create_app(config_name=None):
     from app.routes.rag_eval_routes import bp as rag_eval_bp
     app.register_blueprint(rag_eval_bp)
 
+    # 注册API蓝图
+    from app.routes.api import api_bp
+    app.register_blueprint(api_bp)
+
     # 错误处理器，需要正确缩进到create_app函数内部
     @app.errorhandler(400)
     def bad_request_error(error):
@@ -257,8 +270,30 @@ def create_app(config_name=None):
     def internal_error(error):
         app.logger.error(f"500 Internal Server Error: {error}")
         db.session.rollback()
+
+        # 检查是否是API请求
+        from flask import request, jsonify
+        if request.path.startswith('/api/'):
+            return jsonify({
+                'success': False,
+                'error': '服务器内部错误',
+                'timestamp': datetime.datetime.utcnow().isoformat()
+            }), 500
+
         flash("服务器内部错误，请稍后重试。", "error")
         return redirect(url_for('main.index'))
+
+    @app.errorhandler(404)
+    def not_found_error(error):
+        from flask import request, jsonify
+        if request.path.startswith('/api/'):
+            return jsonify({
+                'success': False,
+                'error': '接口不存在',
+                'timestamp': datetime.datetime.utcnow().isoformat()
+            }), 404
+
+        return render_template('errors/404.html'), 404
 
     # 添加CLI命令
     @app.cli.command()

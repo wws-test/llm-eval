@@ -1,0 +1,67 @@
+{
+  "api_config": {
+    "base_url": "http://localhost:5000/api",
+    "token": "1",
+    "timeout": 30
+  },
+  "test_scenarios": {
+    "run_1k_4K_equivalent": {
+      "name": "Qwen3-235B-A22B_批量压测",
+      "description": "等效于原 run_1k_4K.sh 脚本的批量性能测试",
+      "model_id": 1,
+      "dataset_id": -1,
+      "num_prompts_list": [8, 16, 16, 48, 256, 384, 512, 512, 1024],
+      "max_concurrency_list": [1, 2, 4, 8, 16, 32, 64, 128, 256, 512, 1024],
+      "input_output_pairs": [
+        [128, 128],
+        [256, 256],
+        [128, 2048],
+        [2048, 128],
+        [1024, 1024],
+        [2048, 2048]
+      ]
+    },
+    "quick_test": {
+      "name": "快速性能测试",
+      "description": "用于快速验证的小规模测试",
+      "model_id": 1,
+      "dataset_id": -1,
+      "num_prompts_list": [5, 10, 20],
+      "max_concurrency_list": [1, 2, 4],
+      "input_output_pairs": [
+        [128, 128],
+        [512, 512]
+      ]
+    },
+    "comprehensive_test": {
+      "name": "全面性能测试",
+      "description": "更全面的性能测试，包含更多配置组合",
+      "model_id": 1,
+      "dataset_id": -1,
+      "num_prompts_list": [10, 20, 50, 100, 200, 500, 1000],
+      "max_concurrency_list": [1, 2, 4, 8, 16, 32, 64, 128],
+      "input_output_pairs": [
+        [64, 64],
+        [128, 128],
+        [256, 256],
+        [512, 512],
+        [1024, 1024],
+        [2048, 2048],
+        [128, 1024],
+        [1024, 128],
+        [256, 2048],
+        [2048, 256]
+      ]
+    }
+  },
+  "monitoring": {
+    "check_interval_seconds": 10,
+    "max_wait_minutes": 30,
+    "show_progress": true
+  },
+  "output": {
+    "save_results": true,
+    "results_dir": "./batch_test_results",
+    "include_raw_data": false
+  }
+}

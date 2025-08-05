@@ -412,7 +412,7 @@ class PerformanceEvaluationService:
                 return None
                 
             dataset = Dataset.query.get(dataset_id)
-            if dataset_id != '-1' and not dataset:
+            if dataset_id != -1 and not dataset:
                 current_app.logger.error(f"数据集ID {dataset_id} 不存在")
                 return None
             
@@ -426,7 +426,7 @@ class PerformanceEvaluationService:
             task = PerformanceEvalTask(
                 user_id=user_id,                    # 设置用户ID
                 model_name=model.model_identifier,  # 存储模型标识符
-                dataset_name='openqa' if dataset_id == '-1' else dataset.name,          # 存储数据集名称
+                dataset_name='openqa' if dataset_id == -1 else dataset.name,          # 存储数据集名称
                 concurrency=concurrency,
                 num_requests=num_requests,
                 status='pending',
@@ -573,19 +573,34 @@ class PerformanceEvaluationService:
         return query.first()
 
     @staticmethod
-    def get_all_tasks(user_id: int, page: int = 1, per_page: int = 10) -> Tuple[List[PerformanceEvalTask], int]:
+    def get_all_tasks(user_id: int, page: int = 1, per_page: int = 10, search: str = None, status: str = None) -> Tuple[List[PerformanceEvalTask], int]:
         """
         获取用户的性能评估任务（分页）
-        
+
         Args:
             user_id: 用户ID
             page: 页码
             per_page: 每页数量
-            
+            search: 搜索关键词（搜索模型名称和数据集名称）
+            status: 状态筛选
+
         Returns:
             Tuple[List[PerformanceEvalTask], int]: (任务列表, 总数)
         """
-        query = PerformanceEvalTask.query.filter_by(user_id=user_id).order_by(PerformanceEvalTask.created_at.desc())
+        query = PerformanceEvalTask.query.filter_by(user_id=user_id)
+
+        # 搜索过滤
+        if search:
+            query = query.filter(
+                (PerformanceEvalTask.model_name.contains(search)) |
+                (PerformanceEvalTask.dataset_name.contains(search))
+            )
+
+        # 状态过滤
+        if status:
+            query = query.filter_by(status=status)
+
+        query = query.order_by(PerformanceEvalTask.created_at.desc())
         total = query.count()
         tasks = query.paginate(page=page, per_page=per_page, error_out=False).items
         return tasks, total
@@ -619,6 +634,7 @@ class PerformanceEvaluationService:
             return False
 
     @staticmethod
+    @staticmethod
     def get_metric_explanations() -> Dict[str, Dict[str, str]]:
         """
         获取性能汇总指标的说明信息
@@ -627,77 +643,77 @@ class PerformanceEvaluationService:
             Dict[str, Dict[str, str]]: 指标说明字典
         """
         return {
-            Metrics.TIME_TAKEN_FOR_TESTS: {
+            'TIME_TAKEN_FOR_TESTS': {
                 'title': '测试总时长',
                 'description': '整个测试过程从开始到结束所花费的总时间',
                 'formula': '最后一个请求结束时间 - 第一个请求开始时间'
             },
-            Metrics.NUMBER_OF_CONCURRENCY: {
+            'NUMBER_OF_CONCURRENCY': {
                 'title': '并发数',
                 'description': '同时发送请求的客户端数量',
                 'formula': '预设值'
             },
-            Metrics.TOTAL_REQUESTS: {
+            'TOTAL_REQUESTS': {
                 'title': '总请求数',
                 'description': '在整个测试过程中发送的所有请求的数量',
                 'formula': '成功请求数 + 失败请求数'
             },
-            Metrics.SUCCEED_REQUESTS: {
+            'SUCCEED_REQUESTS': {
                 'title': '成功请求数',
                 'description': '成功完成并返回预期结果的请求数量',
                 'formula': '直接统计'
             },
-            Metrics.FAILED_REQUESTS: {
+            'FAILED_REQUESTS': {
                 'title': '失败请求数',
                 'description': '由于各种原因未能成功完成的请求数量',
                 'formula': '直接统计'
             },
-            Metrics.OUTPUT_TOKEN_THROUGHPUT: {
+            'OUTPUT_TOKEN_THROUGHPUT': {
                 'title': '输出吞吐量',
                 'description': '每秒钟处理的平均输出标记（token）数',
                 'formula': '总输出token数 / 测试总时长'
             },
-            Metrics.TOTAL_TOKEN_THROUGHPUT: {
+            'TOTAL_TOKEN_THROUGHPUT': {
                 'title': '总吞吐量',
                 'description': '每秒钟处理的平均标记（token）数',
                 'formula': '(总输入token数 + 总输出token数) / 测试总时长'
             },
-            Metrics.REQUEST_THROUGHPUT: {
+            'REQUEST_THROUGHPUT': {
                 'title': '请求吞吐量',
                 'description': '每秒钟成功处理的平均请求数',
                 'formula': '成功请求数 / 测试总时长'
             },
-            Metrics.AVERAGE_LATENCY: {
+            'AVERAGE_LATENCY': {
                 'title': '平均延迟',
                 'description': '从发送请求到接收完整响应的平均时间',
                 'formula': '总延迟时间 / 成功请求数'
             },
-            Metrics.AVERAGE_TIME_TO_FIRST_TOKEN: {
+            'AVERAGE_TIME_TO_FIRST_TOKEN': {
                 'title': '平均首token时间',
                 'description': '从发送请求到接收到第一个响应标记的平均时间',
                 'formula': '总首chunk延迟 / 成功请求数'
             },
-            Metrics.AVERAGE_TIME_PER_OUTPUT_TOKEN: {
+            'AVERAGE_TIME_PER_OUTPUT_TOKEN': {
                 'title': '平均每输出token时间',
                 'description': '生成每个输出标记所需的平均时间（不包含首token）',
                 'formula': '总每输出token时间 / 成功请求数'
             },
-            Metrics.AVERAGE_INPUT_TOKENS_PER_REQUEST: {
+            'AVERAGE_INPUT_TOKENS_PER_REQUEST': {
                 'title': '平均输入token数',
                 'description': '每个请求的平均输入标记数',
                 'formula': '总输入token数 / 成功请求数'
             },
-            Metrics.AVERAGE_OUTPUT_TOKENS_PER_REQUEST: {
+            'AVERAGE_OUTPUT_TOKENS_PER_REQUEST': {
                 'title': '平均输出token数',
                 'description': '每个请求的平均输出标记数',
                 'formula': '总输出token数 / 成功请求数'
             },
-            Metrics.AVERAGE_PACKAGE_LATENCY: {
+            'AVERAGE_PACKAGE_LATENCY': {
                 'title': '平均数据包延迟',
                 'description': '接收每个数据包的平均延迟时间',
                 'formula': '总数据包时间 / 总数据包数'
             },
-            Metrics.AVERAGE_PACKAGE_PER_REQUEST: {
+            'AVERAGE_PACKAGE_PER_REQUEST': {
                 'title': '平均每请求数据包数',
                 'description': '每个请求平均接收的数据包数量',
                 'formula': '总数据包数 / 成功请求数'
@@ -745,4 +761,385 @@ class PerformanceEvaluationService:
                 'title': '总吞吐量',
                 'description': '每秒处理的token数量：(输入tokens + 输出tokens) / 端到端延时'
             }
-        } 
+        }
+
+
+class BatchPerformanceEvaluationService:
+    """批量性能评估服务类，支持多组并发数和输入输出长度的批量测试"""
+
+    @staticmethod
+    def create_batch_performance_eval_task(
+        user_id: int,
+        model_id: int,
+        dataset_id: int,
+        test_configurations: List[Dict[str, Any]],
+        name: Optional[str] = None,
+        description: Optional[str] = None
+    ) -> Optional[PerformanceEvalTask]:
+        """
+        创建批量性能评估任务
+
+        Args:
+            user_id: 用户ID
+            model_id: 模型ID
+            dataset_id: 数据集ID
+            test_configurations: 测试配置列表，每个配置包含：
+                - concurrency: 并发数
+                - num_requests: 请求数量
+                - min_prompt_length: 最小输入长度（可选）
+                - max_prompt_length: 最大输入长度（可选）
+                - min_tokens: 最小输出长度（可选）
+                - max_tokens: 最大输出长度（可选）
+            name: 任务名称（可选）
+            description: 任务描述（可选）
+
+        Returns:
+            PerformanceEvalTask: 创建的任务对象，失败返回None
+        """
+        try:
+            # 验证模型权限
+            model = AIModel.query.filter(
+                AIModel.id == model_id,
+                (AIModel.is_system_model == True) | (AIModel.user_id == user_id)
+            ).first()
+
+            if not model:
+                current_app.logger.error(f"找不到模型ID为 {model_id} 的模型或无权限使用")
+                return None
+
+            # 验证数据集权限（-1表示使用内置openqa数据集）
+            dataset = None
+            if dataset_id != -1:
+                dataset = Dataset.query.filter(
+                    Dataset.id == dataset_id,
+                    Dataset.is_active == True,
+                    Dataset.dataset_type == '自建'
+                ).first()
+
+                if not dataset:
+                    current_app.logger.error(f"找不到数据集ID为 {dataset_id} 的数据集")
+                    return None
+
+            # 生成任务名称
+            if not name:
+                name = f"{model.display_name}_批量压测_{get_beijing_time().strftime('%Y%m%d_%H%M%S')}"
+
+            # 创建任务
+            task = PerformanceEvalTask(
+                user_id=user_id,
+                model_name=model.model_identifier,
+                dataset_name='openqa' if dataset_id == -1 else dataset.name,
+                concurrency=0,  # 批量任务的并发数设为0作为标识
+                num_requests=sum(config.get('num_requests', 0) for config in test_configurations),
+                status='pending',
+                created_at=get_beijing_time()
+            )
+
+            # 将批量配置存储在raw_output字段中（临时方案）
+            import json
+            batch_config = {
+                'type': 'batch',
+                'name': name,
+                'description': description,
+                'configurations': test_configurations
+            }
+            task.raw_output = json.dumps(batch_config, ensure_ascii=False)
+
+            db.session.add(task)
+            db.session.commit()
+
+            current_app.logger.info(f"创建批量性能评估任务成功，任务ID: {task.id}")
+            return task
+
+        except Exception as e:
+            db.session.rollback()
+            current_app.logger.error(f"创建批量性能评估任务失败: {str(e)}")
+            return None
+
+    @staticmethod
+    def run_batch_performance_evaluation(task_id: int, model_id: int, dataset_id: int):
+        """
+        运行批量性能评估任务
+
+        Args:
+            task_id: 任务ID
+            model_id: 模型ID
+            dataset_id: 数据集ID
+        """
+        try:
+            task = PerformanceEvalTask.query.get(task_id)
+            if not task:
+                current_app.logger.error(f"任务ID {task_id} 不存在")
+                return
+
+            # 解析批量配置
+            import json
+            batch_config = json.loads(task.raw_output)
+            configurations = batch_config.get('configurations', [])
+
+            if not configurations:
+                current_app.logger.error(f"任务ID {task_id} 没有有效的测试配置")
+                return
+
+            # 获取模型信息
+            selected_model = AIModel.query.get(model_id)
+            if not selected_model:
+                current_app.logger.error(f"找不到模型ID为 {model_id} 的模型")
+                return
+
+            # 获取数据集信息
+            dataset = None
+            selected_dataset = None
+            if dataset_id == -1:
+                dataset = 'openqa'
+            else:
+                selected_dataset = Dataset.query.get(dataset_id)
+                if not selected_dataset:
+                    current_app.logger.error(f"找不到数据集ID为 {dataset_id} 的数据集")
+                    return
+                dataset = "custom_dataset"
+
+            # 创建临时文件存储结果
+            output_file_path = tempfile.mktemp(suffix=f"_batch_perf_eval_{task_id}.pkl")
+
+            # 启动批量评估进程
+            process = multiprocessing.Process(
+                target=BatchPerformanceEvaluationService.run_batch_performance_eval_task_process,
+                args=(task_id, selected_model, dataset, selected_dataset, configurations, output_file_path)
+            )
+            process.start()
+
+            # 启动监控线程
+            from threading import Thread
+            monitor_thread = Thread(
+                target=PerformanceEvaluationService.update_task_from_output_file,
+                args=(current_app._get_current_object(), task_id, output_file_path)
+            )
+            monitor_thread.start()
+
+            current_app.logger.info(f"批量性能评估任务 {task_id} 已启动")
+
+        except Exception as e:
+            current_app.logger.error(f"启动批量性能评估任务 {task_id} 失败: {str(e)}")
+            # 将任务状态设为失败
+            try:
+                task_to_fail = PerformanceEvalTask.query.get(task_id)
+                if task_to_fail:
+                    task_to_fail.status = 'failed'
+                    task_to_fail.error_message = str(e)
+                    task_to_fail.completed_at = get_beijing_time()
+                    db.session.commit()
+            except Exception as update_error:
+                current_app.logger.error(f"更新任务失败状态时出错: {update_error}")
+
+    @staticmethod
+    def run_batch_performance_eval_task_process(
+        task_id: int,
+        model: AIModel,
+        dataset: str,
+        selected_dataset: Optional[Dataset],
+        configurations: List[Dict[str, Any]],
+        output_file_path: str
+    ):
+        """
+        在独立进程中执行批量性能评估任务
+
+        Args:
+            task_id: 评估任务ID
+            model: 模型对象
+            dataset: 数据集名称
+            selected_dataset: 数据集对象（可选）
+            configurations: 测试配置列表
+            output_file_path: 存储结果的临时文件路径
+        """
+        # 获取一个标准的logger实例
+        process_logger = logging.getLogger(f"batch_perf_eval_process.{task_id}")
+
+        def timeout_handler(signum, frame):
+            raise TimeoutError("批量性能评估任务执行超时")
+
+        try:
+            process_logger.info(f"开始执行批量性能评估任务 {task_id}, 配置数量: {len(configurations)}")
+
+            # 设置总任务超时时间（30分钟）
+            signal.signal(signal.SIGALRM, timeout_handler)
+            signal.alarm(30 * 60)  # 30分钟超时
+
+            start_time = time.time()
+            batch_results = []
+
+            for i, config in enumerate(configurations):
+                process_logger.info(f"执行第 {i+1}/{len(configurations)} 个测试配置: {config}")
+
+                # 构建单个测试的evalscope配置
+                task_cfg = {
+                    "url": model.api_base_url.rstrip('/') + '/chat/completions' if not model.api_base_url.endswith('/chat/completions') else model.api_base_url,
+                    "parallel": config.get('concurrency', 1),
+                    "model": model.model_identifier,
+                    "number": config.get('num_requests', 10),
+                    "api": 'openai',
+                    "dataset": dataset,
+                    "stream": True,
+                    "api_key": model.encrypted_api_key
+                }
+
+                # 添加可选参数
+                if config.get('min_prompt_length') is not None:
+                    task_cfg["min_prompt_length"] = config['min_prompt_length']
+                if config.get('max_prompt_length') is not None:
+                    task_cfg["max_prompt_length"] = config['max_prompt_length']
+                if config.get('min_tokens') is not None:
+                    task_cfg["min_tokens"] = config['min_tokens']
+                if config.get('max_tokens') is not None:
+                    task_cfg["max_tokens"] = config['max_tokens']
+
+                # 如果使用自定义数据集，设置数据集路径
+                if selected_dataset and dataset == "custom_dataset":
+                    task_cfg["dataset_path"] = selected_dataset.file_path
+
+                try:
+                    # 执行单个测试
+                    single_result = run_perf_benchmark(task_cfg)
+                    batch_results.append({
+                        'config': config,
+                        'result': single_result,
+                        'status': 'success'
+                    })
+                    process_logger.info(f"第 {i+1} 个测试配置执行成功")
+
+                    # 测试间隔休息
+                    if i < len(configurations) - 1:
+                        time.sleep(5)
+
+                except Exception as single_error:
+                    process_logger.error(f"第 {i+1} 个测试配置执行失败: {single_error}")
+                    batch_results.append({
+                        'config': config,
+                        'result': None,
+                        'status': 'failed',
+                        'error': str(single_error)
+                    })
+
+            # 取消超时信号
+            signal.alarm(0)
+
+            elapsed_time = time.time() - start_time
+            process_logger.info(f"批量性能评估任务 {task_id} 执行耗时: {elapsed_time:.2f}秒")
+
+            # 将结果序列化到文件
+            with open(output_file_path, 'wb') as f:
+                pickle.dump(("SUCCESS", batch_results), f)
+
+            process_logger.info(f"批量性能评估任务 {task_id} 已完成，结果已保存到 {output_file_path}")
+
+        except TimeoutError:
+            signal.alarm(0)
+            error_msg = f"批量性能评估任务 {task_id} 执行超时（30分钟），可能是模型服务不可用"
+            process_logger.error(error_msg)
+            with open(output_file_path, 'wb') as f:
+                pickle.dump(("ERROR", error_msg), f)
+        except Exception as e:
+            signal.alarm(0)
+            error_msg = f"批量性能评估任务 {task_id} 执行异常: {str(e)}"
+            process_logger.error(error_msg)
+            process_logger.error(traceback.format_exc())
+            with open(output_file_path, 'wb') as f:
+                pickle.dump(("ERROR", error_msg), f)
+
+    @staticmethod
+    def create_configurations_from_script_style(
+        num_prompts_list: List[int],
+        max_concurrency_list: List[int],
+        input_output_pairs: List[Tuple[int, int]]
+    ) -> List[Dict[str, Any]]:
+        """
+        根据类似 run_1k_4K.sh 脚本的参数创建测试配置
+
+        Args:
+            num_prompts_list: 请求数量列表
+            max_concurrency_list: 并发数列表
+            input_output_pairs: 输入输出长度对列表 [(input_len, output_len), ...]
+
+        Returns:
+            List[Dict[str, Any]]: 测试配置列表
+        """
+        configurations = []
+
+        for input_len, output_len in input_output_pairs:
+            for i, num_prompts in enumerate(num_prompts_list):
+                if i < len(max_concurrency_list):
+                    concurrency = max_concurrency_list[i]
+
+                    config = {
+                        'concurrency': concurrency,
+                        'num_requests': num_prompts,
+                        'min_prompt_length': input_len,
+                        'max_prompt_length': input_len,
+                        'min_tokens': output_len,
+                        'max_tokens': output_len,
+                        'description': f"输入{input_len}token_输出{output_len}token_并发{concurrency}_请求{num_prompts}"
+                    }
+                    configurations.append(config)
+
+        return configurations
+
+    @staticmethod
+    def parse_batch_results(batch_results: List[Dict[str, Any]]) -> Dict[str, Any]:
+        """
+        解析批量测试结果，生成汇总报告
+
+        Args:
+            batch_results: 批量测试结果列表
+
+        Returns:
+            Dict[str, Any]: 汇总结果
+        """
+        summary = {
+            'total_tests': len(batch_results),
+            'successful_tests': 0,
+            'failed_tests': 0,
+            'test_results': [],
+            'overall_metrics': {}
+        }
+
+        successful_results = []
+
+        for result in batch_results:
+            if result['status'] == 'success' and result['result']:
+                summary['successful_tests'] += 1
+                successful_results.append(result)
+
+                # 提取关键指标
+                config = result['config']
+                test_result = result['result']
+
+                # 假设 test_result 是 (summary_dict, percentile_list) 的元组
+                if isinstance(test_result, tuple) and len(test_result) >= 2:
+                    summary_dict, percentile_list = test_result[0], test_result[1]
+
+                    test_summary = {
+                        'config': config,
+                        'summary': summary_dict,
+                        'percentiles': percentile_list
+                    }
+                    summary['test_results'].append(test_summary)
+            else:
+                summary['failed_tests'] += 1
+                summary['test_results'].append({
+                    'config': result['config'],
+                    'status': 'failed',
+                    'error': result.get('error', 'Unknown error')
+                })
+
+        # 计算整体指标
+        if successful_results:
+            total_requests = sum(r['config']['num_requests'] for r in successful_results)
+            total_concurrency = sum(r['config']['concurrency'] for r in successful_results)
+
+            summary['overall_metrics'] = {
+                'total_requests': total_requests,
+                'average_concurrency': total_concurrency / len(successful_results),
+                'success_rate': summary['successful_tests'] / summary['total_tests'] * 100
+            }
+
+        return summary

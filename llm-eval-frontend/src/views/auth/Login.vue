@@ -1,160 +1,325 @@
 <template>
   <div class="login-container">
-    <el-row type="flex" justify="center" align="middle" class="h-full">
-      <el-col :xs="24" :sm="16" :md="12" :lg="8" class="flex items-center justify-center">
-        <div class="login-card-wrapper">
-          <div class="text-center lg:text-left lg:pr-10 mb-8 lg:mb-0">
-            <h1 class="text-5xl font-bold text-gray-700">立即登录!</h1>
-            <p class="py-6 text-gray-500">
-              首次登录将使用用户名作为初始密码自动创建账户。登录后请及时修改密码以确保账户安全。
-            </p>
-          </div>
-          <el-card class="login-card" shadow="always">
-            <el-form ref="loginFormRef" :model="loginForm" :rules="loginRules" @submit.prevent="handleLogin">
-              <el-form-item prop="username">
-                <el-input v-model="loginForm.username" placeholder="请输入用户名" size="large">
-                  <template #prepend>
-                    <el-icon><User /></el-icon>
-                  </template>
-                </el-input>
-              </el-form-item>
-              <el-form-item prop="password">
-                <el-input v-model="loginForm.password" type="password" placeholder="请输入密码" show-password size="large">
-                  <template #prepend>
-                    <el-icon><Lock /></el-icon>
-                  </template>
-                </el-input>
-              </el-form-item>
-              <el-form-item>
-                <el-checkbox v-model="rememberMe">记住我</el-checkbox>
-              </el-form-item>
-              <el-form-item>
-                <el-button type="primary" native-type="submit" :loading="loading" class="w-full" size="large">
-                  登录
-                </el-button>
-              </el-form-item>
-            </el-form>
-          </el-card>
+    <div class="login-content">
+      <!-- 左侧信息区域 -->
+      <div class="login-info">
+        <div class="info-content">
+          <n-space vertical align="center" size="large">
+            <n-icon size="80" color="#18a058">
+              <Star />
+            </n-icon>
+            <div style="text-align: center;">
+              <h1 class="welcome-title">欢迎使用</h1>
+              <h2 class="platform-title">大模型评估平台</h2>
+              <p class="welcome-desc">
+                全面的AI模型评估解决方案<br>
+                支持多种模型类型和评估维度
+              </p>
+            </div>
+          </n-space>
         </div>
-      </el-col>
-    </el-row>
+      </div>
+
+      <!-- 右侧登录表单 -->
+      <div class="login-form-container">
+        <n-card class="login-card" size="large">
+          <template #header>
+            <div style="text-align: center;">
+              <h3 style="margin: 0; font-size: 24px; font-weight: 600;">立即登录</h3>
+              <p style="margin: 8px 0 0 0; color: #909399; font-size: 14px;">
+                首次登录将自动创建账户，请及时修改密码
+              </p>
+            </div>
+          </template>
+
+          <n-form
+            ref="formRef"
+            :model="loginForm"
+            :rules="formRules"
+            @submit.prevent="handleLogin"
+          >
+            <n-form-item path="username" label="用户名">
+              <n-input
+                v-model:value="loginForm.username"
+                placeholder="请输入用户名"
+                size="large"
+                clearable
+              >
+                <template #prefix>
+                  <n-icon>
+                    <Person />
+                  </n-icon>
+                </template>
+              </n-input>
+            </n-form-item>
+
+            <n-form-item path="password" label="密码">
+              <n-input
+                v-model:value="loginForm.password"
+                type="password"
+                placeholder="请输入密码"
+                size="large"
+                show-password-on="click"
+                clearable
+              >
+                <template #prefix>
+                  <n-icon>
+                    <LockClosed />
+                  </n-icon>
+                </template>
+              </n-input>
+            </n-form-item>
+
+            <n-form-item>
+              <n-checkbox v-model:checked="rememberMe">
+                记住我
+              </n-checkbox>
+            </n-form-item>
+
+            <n-form-item>
+              <n-button
+                type="primary"
+                size="large"
+                block
+                :loading="loading"
+                attr-type="submit"
+                @click="handleLogin"
+              >
+                登录
+              </n-button>
+            </n-form-item>
+          </n-form>
+        </n-card>
+      </div>
+    </div>
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, onMounted } from 'vue';
-import { useRouter } from 'vue-router';
-import { ElMessage } from 'element-plus';
-import type { FormInstance, FormRules } from 'element-plus';
-import { User, Lock } from '@element-plus/icons-vue';
-import { useAuthStore } from '@/stores/auth';
+import { ref, reactive, onMounted, watch } from 'vue'
+import { useRouter } from 'vue-router'
+import { useAuthStore } from '@/stores/auth'
+import { useMessage } from 'naive-ui'
+import type { FormInst, FormRules } from 'naive-ui'
+import {
+  Star,
+  Person,
+  LockClosed
+} from '@vicons/ionicons5'
 
-const router = useRouter();
-const authStore = useAuthStore();
-const loginFormRef = ref<FormInstance>();
-const loading = ref(false);
-const rememberMe = ref(false);
+const router = useRouter()
+const authStore = useAuthStore()
+const message = useMessage()
+const formRef = ref<FormInst | null>(null)
+const loading = ref(false)
+const rememberMe = ref(false)
 
 const loginForm = reactive({
   username: '',
   password: '',
-});
+})
 
-const loginRules = reactive<FormRules>({
-  username: [{ required: true, message: '请输入用户名', trigger: 'blur' }],
-  password: [{ required: true, message: '请输入密码', trigger: 'blur' }],
-});
+const formRules: FormRules = {
+  username: [
+    {
+      required: true,
+      message: '请输入用户名',
+      trigger: ['input', 'blur']
+    }
+  ],
+  password: [
+    {
+      required: true,
+      message: '请输入密码',
+      trigger: ['input', 'blur']
+    }
+  ]
+}
 
 const handleLogin = async () => {
-  if (!loginFormRef.value) return;
-  await loginFormRef.value.validate(async (valid) => {
-    if (valid) {
-      loading.value = true;
-      try {
-        await authStore.login(); // 使用 authStore.login()
-        console.log('Login form submitted:', loginForm);
-        ElMessage.success('登录成功！');
-        
-        if (rememberMe.value) {
-          saveCredentials();
-        } else {
-          clearSavedCredentials();
-        }
+  if (!formRef.value) return
 
-        await router.push('/');
-      } catch (error) {
-        ElMessage.error('登录失败，请检查用户名和密码');
-        console.error(error);
-      } finally {
-        loading.value = false;
+  try {
+    await formRef.value.validate()
+  } catch {
+    return
+  }
+
+  loading.value = true
+
+  try {
+    // 调用真实的登录API
+    const result = await authStore.login(loginForm.username, loginForm.password)
+
+    if (result.success) {
+      message.success(result.message || '登录成功！')
+
+      if (result.isNewUser) {
+        message.info('这是您首次登录，建议及时修改密码', { duration: 5000 })
       }
+
+      if (rememberMe.value) {
+        saveCredentials()
+      } else {
+        clearSavedCredentials()
+      }
+
+      await router.push('/')
     }
-  });
-};
+  } catch (error: any) {
+    console.error('登录失败:', error)
+    message.error(error.message || '登录失败，请检查用户名和密码')
+  } finally {
+    loading.value = false
+  }
+}
 
 const saveCredentials = () => {
-  localStorage.setItem('rememberedUsername', btoa(loginForm.username));
-  localStorage.setItem('rememberedPassword', btoa(loginForm.password));
-  localStorage.setItem('credentialsRemembered', 'true');
-};
+  const username = loginForm.username
+  const password = loginForm.password
+
+  if (username && password) {
+    // 使用Base64编码存储（简单混淆，不是真正的加密）
+    localStorage.setItem('rememberedUsername', btoa(username))
+    localStorage.setItem('rememberedPassword', btoa(password))
+    localStorage.setItem('credentialsRemembered', 'true')
+  }
+}
 
 const loadSavedCredentials = () => {
-  const remembered = localStorage.getItem('credentialsRemembered');
+  const remembered = localStorage.getItem('credentialsRemembered')
+
   if (remembered === 'true') {
-    const savedUsername = localStorage.getItem('rememberedUsername');
-    const savedPassword = localStorage.getItem('rememberedPassword');
+    const savedUsername = localStorage.getItem('rememberedUsername')
+    const savedPassword = localStorage.getItem('rememberedPassword')
+
     if (savedUsername && savedPassword) {
       try {
-        loginForm.username = atob(savedUsername);
-        loginForm.password = atob(savedPassword);
-        rememberMe.value = true;
+        // 解码并填充字段
+        loginForm.username = atob(savedUsername)
+        loginForm.password = atob(savedPassword)
+        rememberMe.value = true
       } catch (e) {
-        clearSavedCredentials();
+        // 如果解码失败，清除保存的数据
+        clearSavedCredentials()
       }
     }
   }
-};
+}
 
 const clearSavedCredentials = () => {
-  localStorage.removeItem('rememberedUsername');
-  localStorage.removeItem('rememberedPassword');
-  localStorage.removeItem('credentialsRemembered');
-};
+  localStorage.removeItem('rememberedUsername')
+  localStorage.removeItem('rememberedPassword')
+  localStorage.removeItem('credentialsRemembered')
+}
+
+// 监听记住我复选框的变化
+watch(rememberMe, (newValue) => {
+  if (!newValue) {
+    // 如果取消勾选记住我，清除保存的账号密码
+    clearSavedCredentials()
+  }
+})
 
 onMounted(() => {
-  loadSavedCredentials();
-});
+  loadSavedCredentials()
+})
 </script>
 
 <style scoped>
 .login-container {
-  height: calc(100vh - 120px); /* Adjust based on header/footer height */
+  min-height: 100vh;
   display: flex;
   align-items: center;
   justify-content: center;
-  background: #f0f2f5;
-}
-.login-card-wrapper {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  padding: 20px;
 }
 
-@media (min-width: 1024px) {
-  .login-card-wrapper {
-    flex-direction: row;
-    align-items: center;
-  }
+.login-content {
+  display: flex;
+  max-width: 1000px;
+  width: 100%;
+  background: white;
+  border-radius: 16px;
+  box-shadow: 0 20px 40px rgba(0, 0, 0, 0.1);
+  overflow: hidden;
 }
+
+.login-info {
+  flex: 1;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  color: white;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 60px 40px;
+}
+
+.info-content {
+  text-align: center;
+}
+
+.welcome-title {
+  font-size: 2.5rem;
+  font-weight: 300;
+  margin: 0;
+  opacity: 0.9;
+}
+
+.platform-title {
+  font-size: 2rem;
+  font-weight: 700;
+  margin: 8px 0 24px 0;
+}
+
+.welcome-desc {
+  font-size: 1.1rem;
+  line-height: 1.6;
+  opacity: 0.8;
+  margin: 0;
+}
+
+.login-form-container {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 40px;
+}
+
 .login-card {
   width: 100%;
   max-width: 400px;
-  border-radius: 8px;
+  border: none;
+  box-shadow: none;
 }
-.text-center {
-  text-align: center;
+
+@media (max-width: 768px) {
+  .login-content {
+    flex-direction: column;
+    max-width: 400px;
+  }
+
+  .login-info {
+    padding: 40px 20px;
+  }
+
+  .welcome-title {
+    font-size: 2rem;
+  }
+
+  .platform-title {
+    font-size: 1.5rem;
+  }
+
+  .welcome-desc {
+    font-size: 1rem;
+  }
+
+  .login-form-container {
+    padding: 20px;
+  }
 }
-.lg\:text-left {
-  text-align: left;
-}
-</style> 
+</style>
+

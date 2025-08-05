@@ -29,6 +29,42 @@ const routes: RouteRecordRaw[] = [
     component: () => import('@/views/Models.vue'),
     meta: { requiresAuth: true }
   },
+  {
+    path: '/datasets',
+    name: 'Datasets',
+    component: () => import('@/views/Datasets.vue'),
+    meta: { requiresAuth: true }
+  },
+  {
+    path: '/evaluations',
+    name: 'Evaluations',
+    component: () => import('@/views/Evaluations.vue'),
+    meta: { requiresAuth: true }
+  },
+  {
+    path: '/perf-eval',
+    name: 'PerformanceEvaluation',
+    component: () => import('@/views/PerformanceEvaluation.vue'),
+    meta: { requiresAuth: true }
+  },
+  {
+    path: '/perf-eval/create',
+    name: 'PerformanceEvaluationCreate',
+    component: () => import('@/views/PerformanceEvaluationCreate.vue'),
+    meta: { requiresAuth: true }
+  },
+  {
+    path: '/perf-eval/history',
+    name: 'PerformanceEvaluationHistory',
+    component: () => import('@/views/PerformanceEvaluationHistory.vue'),
+    meta: { requiresAuth: true }
+  },
+  {
+    path: '/perf-eval/results/:taskId',
+    name: 'PerformanceEvaluationResults',
+    component: () => import('@/views/PerformanceEvaluationResults.vue'),
+    meta: { requiresAuth: true }
+  },
 ]
 
 const router = createRouter({

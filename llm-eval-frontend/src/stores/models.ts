@@ -1,9 +1,8 @@
 // src/stores/models.ts
 import { ref } from 'vue'
 import { defineStore } from 'pinia'
-import { getModels, deleteModel as apiDeleteModel, createModel, updateModel } from '@/api/models'
+import { getModels, deleteModel as apiDeleteModel, createModel as apiCreateModel, updateModel as apiUpdateModel, validateModel as apiValidateModel } from '@/api/models'
 import type { AIModel } from '@/types/model'
-import { ElMessage, ElMessageBox } from 'element-plus'
 
 export const useModelsStore = defineStore('models', () => {
   const models = ref<AIModel[]>([])
@@ -13,60 +12,105 @@ export const useModelsStore = defineStore('models', () => {
   const fetchModels = async (params?: Record<string, any>) => {
     loading.value = true
     try {
-      const response = await getModels(params)
-      models.value = response.models
-      total.value = response.total
-    } catch (error) {
+      // 设置大的分页参数以获取所有模型
+      const queryParams = {
+        per_page: 100, // 获取更多数据，足够显示所有模型
+        page: 1,
+        ...params
+      }
+
+      const response = await getModels(queryParams)
+
+      if (response.success && response.data) {
+        models.value = response.data.models || []
+        total.value = response.data.pagination?.total || models.value.length
+        console.log('📊 获取模型成功:', {
+          获取数量: models.value.length,
+          总数: total.value,
+          分页信息: response.data.pagination
+        })
+      } else {
+        throw new Error(response.error || '获取模型列表失败')
+      }
+    } catch (error: any) {
       console.error('Failed to fetch models:', error)
-      ElMessage.error('获取模型列表失败')
+      throw error
     } finally {
       loading.value = false
     }
   }
 
-  const saveModel = async (data: Partial<AIModel>, id?: number) => {
+  const createModel = async (data: Partial<AIModel>) => {
     try {
-      if (id) {
-        await updateModel(id, data);
-        ElMessage.success('模型更新成功');
+      const response = await apiCreateModel(data)
+
+      if (response.success && response.data) {
+        return response.data
       } else {
-        await createModel(data);
-        ElMessage.success('模型创建成功');
+        throw new Error(response.error || '创建模型失败')
       }
-      // Refresh the list
-      await fetchModels();
     } catch (error) {
-      console.error('Failed to save model:', error);
-      ElMessage.error(id ? '更新模型失败' : '创建模型失败');
-      // Re-throw the error to be caught in the component
-      throw error;
+      console.error('Failed to create model:', error)
+      throw error
+    }
+  }
+
+  const updateModel = async (id: number, data: Partial<AIModel>) => {
+    try {
+      const response = await apiUpdateModel(id, data)
+
+      if (response.success) {
+        return response.data
+      } else {
+        throw new Error(response.error || '更新模型失败')
+      }
+    } catch (error) {
+      console.error('Failed to update model:', error)
+      throw error
+    }
+  }
+
+  const deleteModel = async (id: number) => {
+    try {
+      const response = await apiDeleteModel(id)
+
+      if (response.success) {
+        return response
+      } else {
+        throw new Error(response.error || '删除模型失败')
+      }
+    } catch (error) {
+      console.error('Failed to delete model:', error)
+      throw error
+    }
+  }
+
+  const validateModel = async (id: number) => {
+    try {
+      const response = await apiValidateModel(id)
+
+      if (response.success) {
+        return response.data
+      } else {
+        throw new Error(response.error || '验证模型失败')
+      }
+    } catch (error) {
+      console.error('Failed to validate model:', error)
+      throw error
+    }
+  }
+
+  // 兼容旧的方法名
+  const saveModel = async (data: Partial<AIModel>, id?: number) => {
+    if (id) {
+      return await updateModel(id, data)
+    } else {
+      return await createModel(data)
     }
   }
 
   const removeModel = async (model: AIModel) => {
-    try {
-      await ElMessageBox.confirm(
-        `您确定要删除模型 <strong>${model.display_name}</strong> 吗？此操作无法撤销。`,
-        '确认删除模型',
-        {
-          confirmButtonText: '确认删除',
-          cancelButtonText: '取消',
-          type: 'warning',
-          dangerouslyUseHTMLString: true,
-        }
-      )
-
-      await apiDeleteModel(model.id)
-      ElMessage.success('模型删除成功')
-      
-      await fetchModels()
-      
-    } catch (error) {
-      if (error !== 'cancel') {
-        console.error(`Failed to delete model ${model.id}:`, error)
-        ElMessage.error('删除模型失败')
-      }
-    }
+    return await deleteModel(model.id)
   }
 
   return {
@@ -74,7 +118,11 @@ export const useModelsStore = defineStore('models', () => {
     loading,
     total,
     fetchModels,
+    createModel,
+    updateModel,
+    deleteModel,
+    validateModel,
     saveModel,
     removeModel,
   }
-}) 
+})

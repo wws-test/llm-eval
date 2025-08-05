@@ -3,6 +3,7 @@ from app import db
 from app.models import AIModel
 from flask_login import current_user
 import requests
+import time
 from app.utils import get_beijing_time
 
 # --- System Models Cache ---
@@ -186,76 +187,167 @@ def get_model_by_id_for_user(model_id, user):
             return model
     return None
 
+class ModelService:
+    """模型管理服务类"""
+
+    def create_user_model(self, user, data):
+        """创建用户自定义模型"""
+        api_key = data.pop('api_key', None)
+        encrypted_api_key = api_key
+
+        new_model = AIModel(
+            user_id=user.id,
+            display_name=data['display_name'],
+            api_base_url=data['api_base_url'],
+            model_identifier=data['model_identifier'],
+            encrypted_api_key=encrypted_api_key,
+            provider_name=data.get('provider_name'),
+            model_type=data.get('model_type', 'openai_compatible'),
+            system_prompt=data.get('system_prompt'),
+            default_temperature=data.get('default_temperature', 0.7),
+            notes=data.get('notes'),
+            is_system_model=False,
+            is_validated=False
+        )
+        db.session.add(new_model)
+        try:
+            db.session.commit()
+            return new_model
+        except Exception as e:
+            db.session.rollback()
+            current_app.logger.error(f"Error creating user model: {e}")
+            raise ValueError(f"创建模型失败: {str(e)}")
+
+    def update_user_model(self, model, data):
+        """更新用户自定义模型"""
+        if model.is_system_model:
+            raise ValueError("不能修改系统模型")
+
+        model.display_name = data['display_name']
+        model.api_base_url = data['api_base_url']
+        model.model_identifier = data['model_identifier']
+        model.provider_name = data.get('provider_name')
+        model.model_type = data.get('model_type', 'openai_compatible')
+        model.system_prompt = data.get('system_prompt')
+        model.default_temperature = data.get('default_temperature', 0.7)
+        model.notes = data.get('notes')
+
+        if 'api_key' in data:
+            original_api_key = model.encrypted_api_key
+            model.encrypted_api_key = data['api_key']
+            if data['api_key'] != original_api_key:
+                model.is_validated = False
+
+        db.session.add(model)
+        try:
+            db.session.commit()
+            return model
+        except Exception as e:
+            db.session.rollback()
+            current_app.logger.error(f"Error updating user model {model.id}: {e}")
+            raise ValueError(f"更新模型失败: {str(e)}")
+
+    def delete_user_model(self, model):
+        """删除用户自定义模型"""
+        if model.is_system_model:
+            raise ValueError("不能删除系统模型")
+
+        db.session.delete(model)
+        try:
+            db.session.commit()
+            return True
+        except Exception as e:
+            db.session.rollback()
+            current_app.logger.error(f"Error deleting user model {model.id}: {e}")
+            raise ValueError(f"删除模型失败: {str(e)}")
+
+    def validate_model(self, model):
+        """验证模型连通性"""
+        api_key_to_use = None
+        base_url_to_use = model.api_base_url
+
+        if model.is_system_model:
+            api_key_to_use = _get_system_provider_api_key()
+        elif model.encrypted_api_key:
+            api_key_to_use = model.encrypted_api_key
+
+        if not api_key_to_use:
+            return {
+                'success': False,
+                'error': 'API密钥未配置'
+            }
+
+        if model.model_type == 'openai_compatible':
+            headers = {"Authorization": f"Bearer {api_key_to_use}"}
+            validation_url = f"{base_url_to_use.rstrip('/')}/models"
+
+            try:
+                start_time = time.time()
+                response = requests.get(validation_url, headers=headers, timeout=10)
+                response_time = time.time() - start_time
+
+                if response.status_code == 200:
+                    try:
+                        models_data = response.json()
+                        # 更新验证状态
+                        if not model.is_system_model:
+                            model.is_validated = True
+                            db.session.add(model)
+                            db.session.commit()
+
+                        return {
+                            'success': True,
+                            'response_time': round(response_time, 3),
+                            'model_info': models_data
+                        }
+                    except ValueError:
+                        if not model.is_system_model:
+                            model.is_validated = True
+                            db.session.add(model)
+                            db.session.commit()
+                        return {
+                            'success': True,
+                            'response_time': round(response_time, 3),
+                            'model_info': None
+                        }
+                else:
+                    if not model.is_system_model:
+                        model.is_validated = False
+                        db.session.add(model)
+                        db.session.commit()
+                    return {
+                        'success': False,
+                        'error': f"HTTP {response.status_code}: {response.text[:200]}"
+                    }
+
+            except requests.exceptions.RequestException as e:
+                if not model.is_system_model:
+                    model.is_validated = False
+                    db.session.add(model)
+                    db.session.commit()
+                return {
+                    'success': False,
+                    'error': f"连接失败: {str(e)}"
+                }
+        else:
+            return {
+                'success': False,
+                'error': f"不支持的模型类型: {model.model_type}"
+            }
+
+
+# 保持原有的函数以兼容旧代码
 def create_user_model(data, user):
-    api_key = data.pop('api_key', None)
-    encrypted_api_key = api_key
-    
-    new_model = AIModel(
-        user_id=user.id,
-        display_name=data['display_name'],
-        api_base_url=data['api_base_url'],
-        model_identifier=data['model_identifier'],
-        encrypted_api_key=encrypted_api_key,
-        provider_name=data.get('provider_name'),
-        model_type=data.get('model_type', 'openai_compatible'), # Defaulting to openai_compatible for user models too
-        system_prompt=data.get('system_prompt'),
-        default_temperature=data.get('default_temperature'),
-        notes=data.get('notes'),
-        is_system_model=False,
-        is_validated=False # Validate separately
-    )
-    db.session.add(new_model)
-    try:
-        db.session.commit()
-        return new_model
-    except Exception as e:
-        db.session.rollback()
-        current_app.logger.error(f"Error creating user model: {e}")
-        return None
+    service = ModelService()
+    return service.create_user_model(user, data)
 
 def update_user_model(model, data):
-    if model.is_system_model:
-        return False 
-
-    model.display_name = data['display_name']
-    model.api_base_url = data['api_base_url']
-    model.model_identifier = data['model_identifier']
-    model.provider_name = data.get('provider_name')
-    model.model_type = data.get('model_type', 'openai_compatible')
-    model.system_prompt = data.get('system_prompt')
-    model.default_temperature = data.get('default_temperature')
-    model.notes = data.get('notes')
-
-    if 'api_key' in data:
-        # 保存原始API Key用于比较
-        original_api_key = model.encrypted_api_key
-        # 始终更新API Key字段，因为现在会回填显示
-        model.encrypted_api_key = data['api_key']
-        # 只有当API Key发生变化时才重置验证状态
-        if data['api_key'] != original_api_key:
-            model.is_validated = False
-    
-    db.session.add(model)
-    try:
-        db.session.commit()
-        return True
-    except Exception as e:
-        db.session.rollback()
-        current_app.logger.error(f"Error updating user model {model.id}: {e}")
-        return False
+    service = ModelService()
+    return service.update_user_model(model, data)
 
 def delete_user_model(model):
-    if model.is_system_model or not current_user.is_authenticated or model.user_id != current_user.id:
-        return False
-    
-    db.session.delete(model)
-    try:
-        db.session.commit()
-        return True
-    except Exception as e:
-        db.session.rollback()
-        current_app.logger.error(f"Error deleting user model {model.id}: {e}")
-        return False
+    service = ModelService()
+    return service.delete_user_model(model)
 
 def validate_model_connectivity(model):
     api_key_to_use = None

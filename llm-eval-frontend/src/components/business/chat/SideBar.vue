@@ -35,14 +35,14 @@
 
 <script setup lang="ts">
 import { useChatStore } from '@/stores/chat'
-import { useModelStore } from '@/stores/model'
+import { useModelsStore } from '@/stores/models'
 import { Plus, Delete } from '@element-plus/icons-vue'
 
 const chatStore = useChatStore()
-const modelStore = useModelStore()
+const modelStore = useModelsStore()
 
 const createNewSession = () => {
-  const defaultModelId = modelStore.models.length > 0 ? modelStore.models[0].id : 'default-model'
+  const defaultModelId = modelStore.models.length > 0 ? modelStore.models[0].id.toString() : 'default-model'
   chatStore.createSession(defaultModelId)
 }
 

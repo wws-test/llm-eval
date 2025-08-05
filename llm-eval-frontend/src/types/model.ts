@@ -20,7 +20,13 @@ export interface AIModel {
   model_type: ModelType;
   is_system_model: boolean;
   is_validated: boolean;
+  api_base_url: string;
+  encrypted_api_key?: string;
+  default_temperature?: number;
+  system_prompt?: string;
+  notes?: string;
   created_at: string;
+  updated_at?: string;
 }
 
 /**
